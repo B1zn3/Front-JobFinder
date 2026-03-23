@@ -1,0 +1,326 @@
+/* Vacancies Page Styles */
+.vacancies-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+}
+
+.vacancies-page__main {
+  flex: 1;
+  padding: 40px 0;
+}
+
+.vacancies-page__title {
+  font-size: 36px;
+  font-weight: 700;
+  margin-bottom: 32px;
+  color: var(--text);
+}
+
+/* Search Section */
+.search-section {
+  margin-bottom: 32px;
+}
+
+.search-form {
+  display: flex;
+  gap: 12px;
+  max-width: 600px;
+}
+
+.search-input {
+  flex: 1;
+  height: 56px;
+  padding: 0 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-size: 16px;
+  transition: var(--transition);
+  background: var(--bg-card);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(10, 38, 71, 0.1);
+}
+
+/* Layout */
+.vacancies-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+}
+
+/* Filters Panel */
+.filters-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 24px;
+  height: fit-content;
+  position: sticky;
+  top: 100px;
+}
+
+.filters-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filters-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.reset-filters {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.reset-filters:hover {
+  color: var(--primary-light);
+  text-decoration: underline;
+}
+
+.filter-group {
+  margin-bottom: 20px;
+}
+
+.filter-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+/* Единый стиль для всех комбобоксов */
+.filter-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-size: 14px;
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+  transition: var(--transition);
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.salary-range {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.salary-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-size: 14px;
+  transition: var(--transition);
+  background: var(--bg-card);
+}
+
+.salary-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* Vacancies List */
+.vacancies-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vacancies-count {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.vacancy-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 24px;
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.vacancy-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.vacancy-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.vacancy-card__title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  margin: 0;
+}
+
+.vacancy-card__salary {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.vacancy-card__company {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.vacancy-card__details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.vacancy-detail {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.vacancy-card__skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.skill-tag {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+}
+
+.vacancy-card__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.btn--small {
+  height: 36px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+
+/* Skeleton */
+.skeleton {
+  background: linear-gradient(90deg, #e9eef2 25%, #f1f5f9 37%, #e9eef2 63%);
+  background-size: 400% 100%;
+  animation: pulse 1.4s ease infinite;
+  border-radius: 8px;
+}
+
+.skeleton--title {
+  width: 70%;
+  height: 24px;
+  margin-bottom: 12px;
+}
+
+.skeleton--line {
+  width: 90%;
+  height: 16px;
+  margin-bottom: 8px;
+}
+
+.skeleton--line.short {
+  width: 60%;
+}
+
+@keyframes pulse {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+
+/* Messages */
+.message {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 48px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.message h3 {
+  font-size: 24px;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.message--error {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .vacancies-page__title {
+    font-size: 28px;
+  }
+
+  .vacancies-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .filters-panel {
+    position: static;
+    margin-bottom: 24px;
+  }
+
+  .search-form {
+    flex-direction: column;
+  }
+
+  .vacancy-card__header {
+    flex-direction: column;
+  }
+
+  .vacancy-card__salary {
+    white-space: normal;
+  }
+}

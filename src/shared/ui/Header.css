@@ -1,0 +1,140 @@
+.header {
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  z-index: 50;
+}
+
+.header__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 80px;
+}
+
+.header__left {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+}
+
+.header__logo {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-decoration: none;
+}
+
+.header__nav {
+  display: flex;
+  gap: 24px;
+}
+
+.header__nav-link {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.2s;
+  padding: 5px 0;
+}
+
+.header__nav-link:hover,
+.header__nav-link.active {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 8px;
+}
+
+.header__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header__user {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-right: 8px;
+}
+
+/* Кнопки (общие стили, если не были определены ранее) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 24px;
+  border-radius: 40px;
+  font-weight: 600;
+  font-size: 15px;
+  transition: var(--transition);
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.btn--outline {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.btn--outline:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--bg-secondary);
+}
+
+.btn--primary {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 8px 20px -8px var(--primary);
+}
+
+.btn--primary:hover {
+  background: var(--primary-light);
+  transform: translateY(-2px);
+}
+
+.btn--text {
+  background: transparent;
+  color: var(--text-secondary);
+  padding-inline: 8px;
+}
+
+.btn--text:hover {
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .header__inner {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 16px 0;
+  }
+  .header__left {
+    flex-wrap: wrap;
+    gap: 20px;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .header__nav {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 12px;
+  }
+  .header__actions {
+    margin-left: auto;
+  }
+}

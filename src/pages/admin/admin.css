@@ -1,0 +1,193 @@
+.admin-dashboard {
+  min-height: 100vh;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 32px;
+}
+
+.admin-dashboard .dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.admin-dashboard .eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-dashboard .dashboard-header h1 {
+  margin: 0;
+  font-size: 32px;
+}
+
+.admin-dashboard .subtitle {
+  margin: 10px 0 0;
+  color: #94a3b8;
+}
+
+.admin-dashboard .header-actions,
+.admin-dashboard .tab-row,
+.admin-dashboard .catalog-create {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-dashboard .primary-btn,
+.admin-dashboard .ghost-btn,
+.admin-dashboard .danger-btn,
+.admin-dashboard .tab-row button,
+.admin-dashboard .catalog-create input,
+.admin-dashboard .list-card select {
+  border-radius: 14px;
+  font: inherit;
+}
+
+.admin-dashboard .primary-btn,
+.admin-dashboard .ghost-btn,
+.admin-dashboard .danger-btn,
+.admin-dashboard .tab-row button {
+  border: none;
+  padding: 12px 18px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.admin-dashboard .primary-btn {
+  background: linear-gradient(135deg, #38bdf8, #2563eb);
+  color: #fff;
+}
+
+.admin-dashboard .ghost-btn,
+.admin-dashboard .tab-row button {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.admin-dashboard .danger-btn {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+}
+
+.admin-dashboard .tab-row {
+  margin-bottom: 24px;
+}
+
+.admin-dashboard .tab-row button.active {
+  background: #38bdf8;
+  color: #082f49;
+}
+
+.admin-dashboard .admin-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-dashboard .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.admin-dashboard .stat-card,
+.admin-dashboard .list-card {
+  background: #111c30;
+  border: 1px solid #1e293b;
+  border-radius: 20px;
+}
+
+.admin-dashboard .stat-card {
+  padding: 20px;
+}
+
+.admin-dashboard .stat-card span {
+  display: block;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.admin-dashboard .stat-card strong {
+  font-size: 28px;
+}
+
+.admin-dashboard .panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.admin-dashboard .catalog-create input,
+.admin-dashboard .panel-head select,
+.admin-dashboard .list-card select {
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 12px 14px;
+}
+
+.admin-dashboard .list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-dashboard .list-card {
+  padding: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.admin-dashboard .list-card p {
+  margin: 6px 0 0;
+  color: #94a3b8;
+}
+
+.admin-dashboard .status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: #1e293b;
+  color: #e2e8f0;
+  text-transform: capitalize;
+}
+
+.admin-dashboard .status-pill.accepted {
+  background: rgba(34, 197, 94, 0.2);
+  color: #bbf7d0;
+}
+
+.admin-dashboard .status-pill.rejected {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+}
+
+.admin-dashboard .status-pill.pending {
+  background: rgba(250, 204, 21, 0.16);
+  color: #fde68a;
+}
+
+@media (max-width: 720px) {
+  .admin-dashboard {
+    padding: 18px;
+  }
+
+  .admin-dashboard .dashboard-header,
+  .admin-dashboard .list-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
