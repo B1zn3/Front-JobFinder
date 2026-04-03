@@ -18,6 +18,7 @@ type CompanyListItem = {
   city_names?: string[]
   vacancies_count: number
   first_letter?: string
+  company_type_name?: string | null
 }
 
 const RU_LETTERS = [
@@ -47,6 +48,15 @@ const getFirstLetter = (name: string) => {
   return first
 }
 
+const parseCityIds = (value: string | null): number[] => {
+  if (!value) return []
+
+  return value
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isInteger(item) && item > 0)
+}
+
 const CompanyLogo = ({ src, name }: { src?: string | null; name: string }) => {
   if (src) {
     return <img src={src} alt={name} className="companies-page__company-logo-img" />
@@ -62,27 +72,37 @@ const CompanyLogo = ({ src, name }: { src?: string | null; name: string }) => {
 type CityModalProps = {
   open: boolean
   cities: City[]
-  selectedCityId?: number
+  selectedCityIds: number[]
   onClose: () => void
-  onApply: (cityId?: number) => void
+  onApply: (cityIds: number[]) => void
 }
 
-function CityModal({ open, cities, selectedCityId, onClose, onApply }: CityModalProps) {
+function CityModal({ open, cities, selectedCityIds, onClose, onApply }: CityModalProps) {
   const [search, setSearch] = useState('')
-  const [tempCityId, setTempCityId] = useState<number | undefined>(selectedCityId)
+  const [tempCityIds, setTempCityIds] = useState<number[]>(selectedCityIds)
 
   useEffect(() => {
     if (open) {
-      setTempCityId(selectedCityId)
+      setTempCityIds(selectedCityIds)
       setSearch('')
     }
-  }, [open, selectedCityId])
+  }, [open, selectedCityIds])
 
   if (!open) return null
 
   const filteredCities = cities.filter((city) =>
     city.name.toLowerCase().includes(search.toLowerCase())
   )
+
+  const toggleCity = (cityId: number) => {
+    setTempCityIds((prev) =>
+      prev.includes(cityId)
+        ? prev.filter((id) => id !== cityId)
+        : [...prev, cityId]
+    )
+  }
+
+  const clearAll = () => setTempCityIds([])
 
   return (
     <div className="city-modal__overlay" onClick={onClose}>
@@ -106,24 +126,28 @@ function CityModal({ open, cities, selectedCityId, onClose, onApply }: CityModal
         <div className="city-modal__list">
           <button
             type="button"
-            className={`city-modal__item ${tempCityId === undefined ? 'is-selected' : ''}`}
-            onClick={() => setTempCityId(undefined)}
+            className={`city-modal__item ${tempCityIds.length === 0 ? 'is-selected' : ''}`}
+            onClick={clearAll}
           >
-            <span className="city-modal__radio" />
+            <span className="city-modal__checkbox" />
             <span>Все города</span>
           </button>
 
-          {filteredCities.map((city) => (
-            <button
-              key={city.id}
-              type="button"
-              className={`city-modal__item ${tempCityId === city.id ? 'is-selected' : ''}`}
-              onClick={() => setTempCityId(city.id)}
-            >
-              <span className="city-modal__radio" />
-              <span>{city.name}</span>
-            </button>
-          ))}
+          {filteredCities.map((city) => {
+            const isSelected = tempCityIds.includes(city.id)
+
+            return (
+              <button
+                key={city.id}
+                type="button"
+                className={`city-modal__item ${isSelected ? 'is-selected' : ''}`}
+                onClick={() => toggleCity(city.id)}
+              >
+                <span className="city-modal__checkbox" />
+                <span>{city.name}</span>
+              </button>
+            )
+          })}
         </div>
 
         <div className="city-modal__footer">
@@ -134,7 +158,7 @@ function CityModal({ open, cities, selectedCityId, onClose, onApply }: CityModal
             type="button"
             className="btn btn--primary"
             onClick={() => {
-              onApply(tempCityId)
+              onApply(tempCityIds)
               onClose()
             }}
           >
@@ -154,9 +178,7 @@ export const CompaniesPage = () => {
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
   const [selectedLetter, setSelectedLetter] = useState(searchParams.get('letter') || 'Все')
-  const [cityId, setCityId] = useState<number | undefined>(
-    searchParams.get('city_id') ? Number(searchParams.get('city_id')) : undefined
-  )
+  const [cityIds, setCityIds] = useState<number[]>(parseCityIds(searchParams.get('city_ids')))
   const [hasVacanciesOnly, setHasVacanciesOnly] = useState(
     searchParams.get('has_vacancies_only') === 'true'
   )
@@ -168,11 +190,11 @@ export const CompaniesPage = () => {
   })
 
   const companiesQuery = useQuery({
-    queryKey: ['companies-list', search, cityId, hasVacanciesOnly],
+    queryKey: ['companies-list', search, cityIds, hasVacanciesOnly],
     queryFn: () =>
       fetchCompanies({
         search: search || undefined,
-        city_id: cityId,
+        city_ids: cityIds.length ? cityIds.join(',') : undefined,
         has_vacancies_only: hasVacanciesOnly || undefined,
         limit: 1000,
         skip: 0,
@@ -183,17 +205,27 @@ export const CompaniesPage = () => {
     const params: Record<string, string> = {}
 
     if (search) params.search = search
-    if (cityId) params.city_id = String(cityId)
+    if (cityIds.length) params.city_ids = cityIds.join(',')
     if (hasVacanciesOnly) params.has_vacancies_only = 'true'
     if (selectedLetter && selectedLetter !== 'Все') params.letter = selectedLetter
 
     setSearchParams(params)
-  }, [search, cityId, hasVacanciesOnly, selectedLetter, setSearchParams])
+  }, [search, cityIds, hasVacanciesOnly, selectedLetter, setSearchParams])
 
-  const selectedCityName = useMemo(() => {
-    if (!cityId) return ''
-    return citiesQuery.data?.find((city) => city.id === cityId)?.name || ''
-  }, [cityId, citiesQuery.data])
+  const selectedCityNames = useMemo(() => {
+    if (!cityIds.length) return []
+
+    const cities = citiesQuery.data || []
+    return cities
+      .filter((city) => cityIds.includes(city.id))
+      .map((city) => city.name)
+  }, [cityIds, citiesQuery.data])
+
+  const cityTriggerLabel = useMemo(() => {
+    if (!selectedCityNames.length) return 'Город'
+    if (selectedCityNames.length <= 2) return selectedCityNames.join(', ')
+    return `${selectedCityNames.slice(0, 2).join(', ')} +${selectedCityNames.length - 2}`
+  }, [selectedCityNames])
 
   const filteredCompaniesByLetter = useMemo(() => {
     const companies = companiesQuery.data || []
@@ -284,7 +316,7 @@ export const CompaniesPage = () => {
                   className="companies-page__city-trigger"
                   onClick={() => setCityModalOpen(true)}
                 >
-                  + {selectedCityName || 'Город'}
+                  + {cityTriggerLabel}
                 </button>
 
                 <label className="companies-page__switch">
@@ -356,7 +388,7 @@ export const CompaniesPage = () => {
             {companiesQuery.isSuccess && totalCompanies === 0 && (
               <div className="companies-page__empty">
                 <h3>Компании не найдены</h3>
-                <p>Попробуйте изменить поиск или выбранный город.</p>
+                <p>Попробуйте изменить поиск или выбранные города.</p>
               </div>
             )}
 
@@ -390,6 +422,13 @@ export const CompaniesPage = () => {
 
                               <div className="companies-page__card-main">
                                 <h3>{company.name}</h3>
+
+                                {company.company_type_name && (
+                                  <div className="companies-page__card-type">
+                                    {company.company_type_name}
+                                  </div>
+                                )}
+
                                 {company.city_names && company.city_names.length > 0 && (
                                   <div className="companies-page__card-cities">
                                     {company.city_names.slice(0, 3).join(', ')}
@@ -417,9 +456,9 @@ export const CompaniesPage = () => {
       <CityModal
         open={cityModalOpen}
         cities={citiesQuery.data || []}
-        selectedCityId={cityId}
+        selectedCityIds={cityIds}
         onClose={() => setCityModalOpen(false)}
-        onApply={(value) => setCityId(value)}
+        onApply={(value) => setCityIds(value)}
       />
     </div>
   )

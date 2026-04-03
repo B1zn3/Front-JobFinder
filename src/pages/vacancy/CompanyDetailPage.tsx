@@ -17,6 +17,7 @@ type CompanyDetail = {
   vacancies_count?: number
   city_names?: string[]
   first_letter?: string
+  company_type_name?: string | null
 }
 
 type VacancyListItem = {
@@ -65,6 +66,12 @@ const formatSalary = (
   return 'Зарплата не указана'
 }
 
+const normalizeWebsiteUrl = (website?: string | null) => {
+  if (!website) return null
+  if (/^https?:\/\//i.test(website)) return website
+  return `https://${website}`
+}
+
 const CompanyLogo = ({ src, name }: { src?: string | null; name: string }) => {
   if (src) {
     return <img src={src} alt={name} className="company-detail__logo-img" />
@@ -111,6 +118,7 @@ export const CompanyDetailPage = () => {
   const company = companyQuery.data
   const vacancies = vacanciesQuery.data || []
   const hasMoreThanFour = vacancies.length > 4
+  const websiteUrl = normalizeWebsiteUrl(company.website)
 
   return (
     <div className="company-detail-page">
@@ -135,7 +143,11 @@ export const CompanyDetailPage = () => {
                   <h1 className="company-detail-hero__title">{company.name}</h1>
 
                   <div className="company-detail-hero__meta">
-
+                    {company.company_type_name ? (
+                      <span className="company-detail-pill company-detail-pill--accent">
+                        {company.company_type_name}
+                      </span>
+                    ) : null}
 
                     {company.city_names?.length ? (
                       <span className="company-detail-pill">
@@ -144,10 +156,10 @@ export const CompanyDetailPage = () => {
                     ) : null}
                   </div>
 
-                  {company.website && (
+                  {websiteUrl && (
                     <a
                       className="company-detail-hero__website"
-                      href={company.website}
+                      href={websiteUrl}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -260,6 +272,13 @@ export const CompanyDetailPage = () => {
                       <strong>{company.name}</strong>
                     </div>
 
+                    {company.company_type_name && (
+                      <div className="company-detail-info-row">
+                        <span>Тип организации</span>
+                        <strong>{company.company_type_name}</strong>
+                      </div>
+                    )}
+
                     {company.founded_year && (
                       <div className="company-detail-info-row">
                         <span>Год основания</span>
@@ -286,10 +305,10 @@ export const CompanyDetailPage = () => {
                       </div>
                     ) : null}
 
-                    {company.website && (
+                    {websiteUrl && (
                       <div className="company-detail-info-row">
                         <span>Сайт</span>
-                        <a href={company.website} target="_blank" rel="noreferrer">
+                        <a href={websiteUrl} target="_blank" rel="noreferrer">
                           Перейти
                         </a>
                       </div>

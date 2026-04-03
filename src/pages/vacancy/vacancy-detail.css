@@ -147,57 +147,54 @@
 
 .vacancy-detail-hero__actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
+  justify-content: flex-end;
   margin-top: 26px;
 }
 
-/* improved apply button */
+/* apply button */
 
-.vacancy-detail-hero__actions .btn--primary {
-  min-width: 220px;
+.vacancy-detail-apply-btn {
+  min-width: 280px;
   height: 56px;
-  padding: 0 28px;
-  border: none;
-  border-radius: 18px;
-  align-items: left;
+  padding: 0 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
   color: #fff;
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 800;
-  letter-spacing: 0.01em;
-  box-shadow:
-    0 12px 28px rgba(10, 47, 90, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
   transition:
-    transform 0.22s ease,
-    box-shadow 0.22s ease,
-    filter 0.22s ease;
+    transform 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-.vacancy-detail-hero__actions .btn--primary:hover {
-  transform: translateY(-2px);
-  background: linear-gradient(135deg, #0c3768 0%, #19508c 100%);
-  box-shadow:
-    0 16px 34px rgba(10, 47, 90, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+.vacancy-detail-apply-btn:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 10px 24px rgba(10, 38, 71, 0.16);
 }
 
-.vacancy-detail-hero__actions .btn--primary:active {
+.vacancy-detail-apply-btn:active {
   transform: translateY(0);
-  background: linear-gradient(135deg, #082848 0%, #103d6b 100%);
-  box-shadow:
-    0 8px 18px rgba(10, 47, 90, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: none;
 }
 
-.vacancy-detail-hero__actions .btn--primary:focus-visible {
+.vacancy-detail-apply-btn:focus-visible {
   outline: none;
   box-shadow:
-    0 0 0 4px rgba(255, 255, 255, 0.14),
-    0 0 0 8px rgba(20, 69, 122, 0.22),
-    0 16px 34px rgba(10, 47, 90, 0.3);
+    0 0 0 4px rgba(255, 255, 255, 0.12),
+    0 0 0 8px rgba(255, 255, 255, 0.08);
 }
-
 /* layout */
 
 .vacancy-detail-content {

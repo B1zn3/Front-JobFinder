@@ -173,7 +173,7 @@ export const RegisterPage = () => {
                   Название компании
                   <input
                     type="text"
-                    placeholder="ООО Ромашка"
+                    placeholder="СтройМет"
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
                     required

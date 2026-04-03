@@ -404,34 +404,27 @@
   align-items: center;
   gap: 14px;
   min-height: 62px;
-  padding: 0 4px;
+  padding: 0 10px;
   border: none;
+  border-radius: 16px;
   background: transparent;
   color: var(--text);
   font-size: 17px;
   text-align: left;
   cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
-.city-modal__radio {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 2px solid #cfd8e3;
-  flex-shrink: 0;
-  position: relative;
+.city-modal__item:hover {
+  background: rgba(10, 38, 71, 0.05);
 }
 
-.city-modal__item.is-selected .city-modal__radio {
-  border-color: var(--primary);
-}
-
-.city-modal__item.is-selected .city-modal__radio::after {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  border-radius: 50%;
-  background: var(--primary);
+.city-modal__item.is-selected {
+  background: linear-gradient(
+    90deg,
+    rgba(10, 38, 71, 0.1) 0%,
+    rgba(10, 38, 71, 0.04) 100%
+  );
 }
 
 .city-modal__footer {
@@ -504,4 +497,64 @@
     flex-direction: column-reverse;
     align-items: stretch;
   }
+}
+
+.city-modal__checkbox {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(10, 38, 71, 0.22);
+  background: linear-gradient(
+    180deg,
+    rgba(10, 38, 71, 0.08) 0%,
+    rgba(10, 38, 71, 0.14) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 4px 10px rgba(10, 38, 71, 0.08);
+  flex-shrink: 0;
+  position: relative;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.city-modal__item:hover .city-modal__checkbox {
+  border-color: rgba(10, 38, 71, 0.32);
+  transform: translateY(-1px);
+}
+
+.city-modal__item.is-selected .city-modal__checkbox {
+  border-color: var(--primary);
+  background: linear-gradient(
+    180deg,
+    rgba(10, 38, 71, 0.96) 0%,
+    rgba(10, 38, 71, 0.82) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 18px rgba(10, 38, 71, 0.2);
+}
+
+.city-modal__item.is-selected .city-modal__checkbox::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 3px;
+  width: 5px;
+  height: 10px;
+  border-right: 2.5px solid #fff;
+  border-bottom: 2.5px solid #fff;
+  transform: rotate(45deg);
+}
+
+.city-modal__item span:last-child {
+  font-weight: 500;
+}
+
+.city-modal__item.is-selected span:last-child {
+  color: var(--text);
+  font-weight: 700;
 }

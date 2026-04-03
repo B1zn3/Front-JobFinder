@@ -161,7 +161,11 @@ export const VacancyDetailPage = () => {
               </div>
 
               <div className="vacancy-detail-hero__actions">
-                <button type="button" className="btn btn--primary btn--large" onClick={handleApply}>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--large vacancy-detail-apply-btn"
+                  onClick={handleApply}
+                >
                   Откликнуться
                 </button>
 
