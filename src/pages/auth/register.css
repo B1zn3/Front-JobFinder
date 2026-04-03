@@ -129,9 +129,10 @@
 .fields-container label {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
   font-weight: 500;
   color: var(--text-secondary);
+  margin-bottom: 10px;
 }
 
 .fields-container input {

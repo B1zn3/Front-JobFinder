@@ -11,8 +11,8 @@ import './home.css'
 type VacancyListItem = {
   id: number
   title: string
-  salary_min: number
-  salary_max: number
+  salary_min?: number | null
+  salary_max?: number | null
   company_name: string
   company_id?: number
   city_name?: string | null
@@ -27,6 +27,7 @@ type Company = {
   logo?: string | null
   founded_year?: number | null
   employee_count?: number | null
+  vacancies_count?: number
 }
 
 type Category = {
@@ -34,7 +35,22 @@ type Category = {
   name: string
   count: number
 }
+const formatVacanciesCount = (count?: number) => {
+  const value = count ?? 0
 
+  const mod10 = value % 10
+  const mod100 = value % 100
+
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${value} вакансия`
+  }
+
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${value} вакансии`
+  }
+
+  return `${value} вакансий`
+}
 const fetchVacancies = async (): Promise<VacancyListItem[]> => {
   const { data } = await http.get('/public/vacancies', {
     params: { skip: 0, limit: 3 },
@@ -56,8 +72,30 @@ const fetchPopularCategories = async (): Promise<Category[]> => {
   return data
 }
 
-const formatSalary = (salaryMin: number, salaryMax: number) => {
-  return `${salaryMin.toLocaleString('ru-RU')} — ${salaryMax.toLocaleString('ru-RU')} ₽`
+const formatSalary = (
+  salaryMin?: number | null,
+  salaryMax?: number | null,
+  currency = 'BYN'
+) => {
+  const min = typeof salaryMin === 'number' && salaryMin > 0 ? salaryMin : null
+  const max = typeof salaryMax === 'number' && salaryMax > 0 ? salaryMax : null
+
+  if (min && max) {
+    if (min === max) {
+      return `${min.toLocaleString('ru-RU')} ${currency}`
+    }
+    return `${min.toLocaleString('ru-RU')} — ${max.toLocaleString('ru-RU')} ${currency}`
+  }
+
+  if (min) {
+    return `от ${min.toLocaleString('ru-RU')} ${currency}`
+  }
+
+  if (max) {
+    return `до ${max.toLocaleString('ru-RU')} ${currency}`
+  }
+
+  return 'Зарплата не указана'
 }
 
 const CompanyLogo = ({ src, name }: { src?: string | null; name: string }) => {
@@ -127,7 +165,7 @@ export const HomePage = () => {
   }
 
   const handleNavClick = (path: string) => {
-    navigate('/login', { state: { from: path } })
+    navigate('/vacancies', { state: { from: path } })
   }
 
   const handleCategoryClick = (categoryId: number) => {
@@ -378,7 +416,9 @@ export const HomePage = () => {
                           : company.description}
                       </p>
                     )}
-                    <span className="company-card__vacancies">12 вакансий</span>
+                    <span className="company-card__vacancies">
+                      {formatVacanciesCount(company.vacancies_count)}
+                    </span>
                   </div>
                 ))}
               </div>

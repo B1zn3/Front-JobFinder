@@ -20,9 +20,9 @@ export const Footer = () => {
             {/* Первая колонка — контакты */}
             <div className="footer__links-column">
               <h4>Контакты</h4>
-              <a href="mailto:support@jobfinder.by">support@jobfinder.by</a>
-              <a href="mailto:partners@jobfinder.by">partners@jobfinder.by</a>
-              <a href="tel:+375171234567">+375 (17) 123-45-67</a>
+              <a href="mailto:kuprianevgenij75@gmail.com">kuprianevgenij75@gmail.com</a>
+              <a href="mailto:kuprianevgenij75@gmail.com">kuprianevgenij75@gmail.com</a>
+              <a href="tel:+375295608177">+375 (29) 560-81-77</a>
               <p style={{ marginTop: '0.5rem', color: '#999', fontSize: '0.9rem' }}>
                 Пн–Пт, 9:00–18:00
               </p>
@@ -31,13 +31,13 @@ export const Footer = () => {
             {/* Вторая колонка — социальные сети (внешние ссылки) */}
             <div className="footer__links-column">
               <h4>Мы в соцсетях</h4>
-              <a href="https://t.me/jobfinder" target="_blank" rel="noopener noreferrer">
+              <a href="https://web.telegram.org" target="_blank" rel="noopener noreferrer">
                 Telegram
               </a>
-              <a href="https://instagram.com/jobfinder.by" target="_blank" rel="noopener noreferrer">
+              <a href="https://www.instagram.com/enemykor/" target="_blank" rel="noopener noreferrer">
                 Instagram
               </a>
-              <a href="https://linkedin.com/company/jobfinder" target="_blank" rel="noopener noreferrer">
+              <a href="https://www.linkedin.com/in/enemycor-o-4500283b5/" target="_blank" rel="noopener noreferrer">
                 LinkedIn
               </a>
             </div>

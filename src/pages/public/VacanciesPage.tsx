@@ -19,37 +19,39 @@ type Skill = {
 type Vacancy = {
   id: number
   title: string
-  description?: string
-  salary_min: number
-  salary_max: number
+  description?: string | null
+  salary_min?: number | null
+  salary_max?: number | null
 
-  company_name?: string
-  city_name?: string
-  profession_name?: string
+  company_name?: string | null
+  city_name?: string | null
+  profession_name?: string | null
 
   company?: NamedEntity & { description?: string; logo?: string }
   city?: NamedEntity
   profession?: NamedEntity
-  employment_type?: NamedEntity | string
-  work_schedule?: NamedEntity | string
-  experience?: NamedEntity | string
-  currency?: NamedEntity | string
+  employment_type?: NamedEntity | string | null
+  work_schedule?: NamedEntity | string | null
+  experience?: NamedEntity | string | null
+  currency?: string | null
 
   skills?: Skill[] | string[]
 }
 
-const fetchVacancies = async (params: Record<string, unknown>) => {
+const PAGE_SIZE = 12
+
+const fetchVacancies = async (params: Record<string, unknown>): Promise<Vacancy[]> => {
   const { data } = await http.get('/public/vacancies', { params })
   return data
 }
 
 const fetchCities = async (): Promise<NamedEntity[]> => {
-  const { data } = await http.get('/public/cities')
+  const { data } = await http.get('/public/catalogs/cities')
   return data
 }
 
 const fetchProfessions = async (): Promise<NamedEntity[]> => {
-  const { data } = await http.get('/public/professions')
+  const { data } = await http.get('/public/catalogs/professions')
   return data
 }
 
@@ -68,6 +70,17 @@ const fetchWorkSchedules = async (): Promise<NamedEntity[]> => {
   return data
 }
 
+const fetchVacanciesCount = async (params: Record<string, unknown>): Promise<number> => {
+  const { data } = await http.get('/public/vacancies', {
+    params: {
+      ...params,
+      skip: 0,
+      limit: 100,
+    },
+  })
+  return Array.isArray(data) ? data.length : 0
+}
+
 const getEntityName = (value?: NamedEntity | string | null) => {
   if (!value) return ''
   return typeof value === 'string' ? value : value.name
@@ -79,15 +92,29 @@ const getSkills = (skills?: Skill[] | string[]) => {
   return (skills as Skill[]).map((s) => s.name)
 }
 
-const formatSalary = (min: number, max: number, currency?: NamedEntity | string) => {
-  const currencyName = getEntityName(currency) || 'BYN'
+const formatSalary = (
+  salaryMin?: number | null,
+  salaryMax?: number | null,
+  currency = 'BYN'
+) => {
+  const min = typeof salaryMin === 'number' && salaryMin > 0 ? salaryMin : null
+  const max = typeof salaryMax === 'number' && salaryMax > 0 ? salaryMax : null
 
-  if (!min && !max) return 'Зарплата не указана'
-  if (min && max && min !== max) {
-    return `${min.toLocaleString('ru-RU')} — ${max.toLocaleString('ru-RU')} ${currencyName}`
+  if (min && max) {
+    if (min === max) {
+      return `${min.toLocaleString('ru-RU')} ${currency}`
+    }
+    return `${min.toLocaleString('ru-RU')} — ${max.toLocaleString('ru-RU')} ${currency}`
   }
-  if (min) return `от ${min.toLocaleString('ru-RU')} ${currencyName}`
-  if (max) return `до ${max.toLocaleString('ru-RU')} ${currencyName}`
+
+  if (min) {
+    return `от ${min.toLocaleString('ru-RU')} ${currency}`
+  }
+
+  if (max) {
+    return `до ${max.toLocaleString('ru-RU')} ${currency}`
+  }
+
   return 'Зарплата не указана'
 }
 
@@ -164,6 +191,9 @@ function CustomSelect({ label, placeholder, value, options, onChange }: CustomSe
 export const VacanciesPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
 
+  const initialPage = Number(searchParams.get('page') || '1')
+  const [page, setPage] = useState(Number.isNaN(initialPage) || initialPage < 1 ? 1 : initialPage)
+
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
 
@@ -194,10 +224,19 @@ export const VacanciesPage = () => {
   const employmentTypesQuery = useQuery({ queryKey: ['employment-types'], queryFn: fetchEmploymentTypes })
   const experiencesQuery = useQuery({ queryKey: ['experiences'], queryFn: fetchExperiences })
   const workSchedulesQuery = useQuery({ queryKey: ['work-schedules'], queryFn: fetchWorkSchedules })
-
-  const vacanciesQuery = useQuery({
-    queryKey: [
-      'vacancies',
+  
+  const filterParams = useMemo(
+    () => ({
+      search: search || undefined,
+      city_id: cityId,
+      profession_id: professionId,
+      employment_type_id: employmentTypeId,
+      experience_id: experienceId,
+      work_schedule_id: workScheduleId,
+      salary_from: salaryFrom,
+      salary_to: salaryTo,
+    }),
+    [
       search,
       cityId,
       professionId,
@@ -206,21 +245,35 @@ export const VacanciesPage = () => {
       workScheduleId,
       salaryFrom,
       salaryTo,
-    ],
+    ]
+  )
+
+  const vacanciesQuery = useQuery({
+    queryKey: ['vacancies', filterParams, page],
     queryFn: () =>
       fetchVacancies({
-        search: search || undefined,
-        city_id: cityId,
-        profession_id: professionId,
-        employment_type_id: employmentTypeId,
-        experience_id: experienceId,
-        work_schedule_id: workScheduleId,
-        salary_from: salaryFrom,
-        salary_to: salaryTo,
-        skip: 0,
-        limit: 24,
+        ...filterParams,
+        skip: (page - 1) * PAGE_SIZE,
+        limit: PAGE_SIZE,
       }),
   })
+  const vacanciesCountQuery = useQuery({
+    queryKey: ['vacancies-count', filterParams],
+    queryFn: () => fetchVacanciesCount(filterParams),
+  })
+
+const totalSiteVacanciesQuery = useQuery({
+    queryKey: ['vacancies-count-total-site'],
+    queryFn: () =>
+      fetchVacanciesCount({
+        skip: 0,
+        limit: 1000,
+      }),
+  })
+
+  const totalSiteVacancies = totalSiteVacanciesQuery.data ?? 0
+  const filteredVacanciesCount = vacanciesCountQuery.data ?? 0
+  const totalPages = Math.max(1, Math.ceil(filteredVacanciesCount / PAGE_SIZE))
 
   useEffect(() => {
     const params: Record<string, string> = {}
@@ -233,6 +286,7 @@ export const VacanciesPage = () => {
     if (workScheduleId) params.work_schedule_id = String(workScheduleId)
     if (salaryFrom) params.salary_from = String(salaryFrom)
     if (salaryTo) params.salary_to = String(salaryTo)
+    if (page > 1) params.page = String(page)
 
     setSearchParams(params)
   }, [
@@ -244,6 +298,7 @@ export const VacanciesPage = () => {
     workScheduleId,
     salaryFrom,
     salaryTo,
+    page,
     setSearchParams,
   ])
 
@@ -260,8 +315,11 @@ export const VacanciesPage = () => {
     ].filter(Boolean).length
   }, [search, cityId, professionId, employmentTypeId, experienceId, workScheduleId, salaryFrom, salaryTo])
 
+
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    setPage(1)
     setSearch(searchInput.trim())
   }
 
@@ -275,12 +333,25 @@ export const VacanciesPage = () => {
     setWorkScheduleId(undefined)
     setSalaryFrom(undefined)
     setSalaryTo(undefined)
+    setPage(1)
   }
 
   const openVacancy = (id: number) => {
     window.open(`/vacancies/${id}`, '_blank', 'noopener,noreferrer')
   }
 
+  const goToPage = (nextPage: number) => {
+    if (nextPage < 1 || nextPage > totalPages) return
+    setPage(nextPage)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(1)
+    }
+  }, [page, totalPages])
+  
   return (
     <div className="vacancies-page">
       <Header />
@@ -311,20 +382,18 @@ export const VacanciesPage = () => {
               <div className="vacancies-hero__stats">
                 <div className="vacancies-stat">
                   <span className="vacancies-stat__value">
-                    {vacanciesQuery.data?.length ?? '24+'}
+                    {totalSiteVacanciesQuery.isLoading ? '...' : totalSiteVacancies}
                   </span>
                   <span className="vacancies-stat__label">вакансий</span>
                 </div>
+
                 <div className="vacancies-stat">
-                  <span className="vacancies-stat__value">
-                    {citiesQuery.data?.length ?? '100+'}
-                  </span>
+                  <span className="vacancies-stat__value">{citiesQuery.data?.length ?? '100+'}</span>
                   <span className="vacancies-stat__label">городов</span>
                 </div>
+
                 <div className="vacancies-stat">
-                  <span className="vacancies-stat__value">
-                    {professionsQuery.data?.length ?? '80+'}
-                  </span>
+                  <span className="vacancies-stat__value">{professionsQuery.data?.length ?? '80+'}</span>
                   <span className="vacancies-stat__label">профессий</span>
                 </div>
               </div>
@@ -340,7 +409,7 @@ export const VacanciesPage = () => {
               </div>
 
               <div className="vacancies-result-badge">
-                Найдено: <strong>{vacanciesQuery.data?.length ?? 0}</strong>
+                Найдено: <strong>{filteredVacanciesCount}</strong>
               </div>
             </div>
 
@@ -395,7 +464,10 @@ export const VacanciesPage = () => {
                     placeholder="Все города"
                     value={cityId}
                     options={citiesQuery.data || []}
-                    onChange={setCityId}
+                    onChange={(value) => {
+                      setPage(1)
+                      setCityId(value)
+                    }}
                   />
 
                   <CustomSelect
@@ -403,7 +475,10 @@ export const VacanciesPage = () => {
                     placeholder="Все профессии"
                     value={professionId}
                     options={professionsQuery.data || []}
-                    onChange={setProfessionId}
+                    onChange={(value) => {
+                      setPage(1)
+                      setProfessionId(value)
+                    }}
                   />
 
                   <CustomSelect
@@ -411,7 +486,10 @@ export const VacanciesPage = () => {
                     placeholder="Любой тип"
                     value={employmentTypeId}
                     options={employmentTypesQuery.data || []}
-                    onChange={setEmploymentTypeId}
+                    onChange={(value) => {
+                      setPage(1)
+                      setEmploymentTypeId(value)
+                    }}
                   />
 
                   <CustomSelect
@@ -419,7 +497,10 @@ export const VacanciesPage = () => {
                     placeholder="Любой опыт"
                     value={experienceId}
                     options={experiencesQuery.data || []}
-                    onChange={setExperienceId}
+                    onChange={(value) => {
+                      setPage(1)
+                      setExperienceId(value)
+                    }}
                   />
 
                   <CustomSelect
@@ -427,7 +508,10 @@ export const VacanciesPage = () => {
                     placeholder="Любой график"
                     value={workScheduleId}
                     options={workSchedulesQuery.data || []}
-                    onChange={setWorkScheduleId}
+                    onChange={(value) => {
+                      setPage(1)
+                      setWorkScheduleId(value)
+                    }}
                   />
 
                   <div className="filter-group">
@@ -438,18 +522,20 @@ export const VacanciesPage = () => {
                         className="filter-control"
                         placeholder="от"
                         value={salaryFrom ?? ''}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          setPage(1)
                           setSalaryFrom(e.target.value ? Number(e.target.value) : undefined)
-                        }
+                        }}
                       />
                       <input
                         type="number"
                         className="filter-control"
                         placeholder="до"
                         value={salaryTo ?? ''}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          setPage(1)
                           setSalaryTo(e.target.value ? Number(e.target.value) : undefined)
-                        }
+                        }}
                       />
                     </div>
                   </div>
@@ -459,7 +545,7 @@ export const VacanciesPage = () => {
               <div className="vacancies-content">
                 {vacanciesQuery.isLoading && (
                   <div className="vacancies-grid">
-                    {Array.from({ length: 6 }).map((_, i) => (
+                    {Array.from({ length: PAGE_SIZE }).map((_, i) => (
                       <div key={i} className="vacancy-card vacancy-card--skeleton" />
                     ))}
                   </div>
@@ -476,78 +562,119 @@ export const VacanciesPage = () => {
                 )}
 
                 {vacanciesQuery.isSuccess && vacanciesQuery.data?.length > 0 && (
-                  <div className="vacancies-grid">
-                    {vacanciesQuery.data.map((vacancy: Vacancy) => {
-                      const city = vacancy.city?.name || vacancy.city_name
-                      const profession = vacancy.profession?.name || vacancy.profession_name
-                      const company = vacancy.company?.name || vacancy.company_name
-                      const employmentType = getEntityName(vacancy.employment_type)
-                      const workSchedule = getEntityName(vacancy.work_schedule)
-                      const experience = getEntityName(vacancy.experience)
-                      const currency = vacancy.currency
-                      const skills = getSkills(vacancy.skills)
+                  <>
+                    <div className="vacancies-grid">
+                      {vacanciesQuery.data.map((vacancy) => {
+                        const city = vacancy.city?.name || vacancy.city_name
+                        const profession = vacancy.profession?.name || vacancy.profession_name
+                        const company = vacancy.company?.name || vacancy.company_name
+                        const employmentType = getEntityName(vacancy.employment_type)
+                        const workSchedule = getEntityName(vacancy.work_schedule)
+                        const experience = getEntityName(vacancy.experience)
+                        const currency = vacancy.currency || 'BYN'
+                        const skills = getSkills(vacancy.skills)
 
-                      return (
-                        <article
-                          key={vacancy.id}
-                          className="vacancy-card"
-                          onClick={() => openVacancy(vacancy.id)}
-                          
+                        return (
+                          <article
+                            key={vacancy.id}
+                            className="vacancy-card"
+                            onClick={() => openVacancy(vacancy.id)}
+                          >
+                            <div className="vacancy-card__top">
+                              <div className="vacancy-card__main">
+                                <h3 className="vacancy-card__title">{vacancy.title}</h3>
+                                <div className="vacancy-card__company">
+                                  {company || 'Компания не указана'}
+                                </div>
+                              </div>
+
+                              <div className="vacancy-card__salary">
+                                {formatSalary(vacancy.salary_min, vacancy.salary_max, currency)}
+                              </div>
+                            </div>
+
+                            <div className="vacancy-card__meta">
+                              {city && <span className="vacancy-pill">{city}</span>}
+                              {profession && <span className="vacancy-pill">{profession}</span>}
+                              {employmentType && <span className="vacancy-pill">{employmentType}</span>}
+                              {workSchedule && <span className="vacancy-pill">{workSchedule}</span>}
+                              {experience && <span className="vacancy-pill">{experience}</span>}
+                            </div>
+
+                            {vacancy.description && (
+                              <p className="vacancy-card__description">
+                                {vacancy.description.length > 150
+                                  ? `${vacancy.description.slice(0, 150)}...`
+                                  : vacancy.description}
+                              </p>
+                            )}
+
+                            {skills.length > 0 && (
+                              <div className="vacancy-card__skills">
+                                {skills.slice(0, 6).map((skill) => (
+                                  <span className="skill-tag" key={skill}>
+                                    {skill}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="vacancy-card__bottom">
+                              <span className="vacancy-card__link">Подробнее о вакансии</span>
+                              <button
+                                type="button"
+                                className="btn btn--primary"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openVacancy(vacancy.id)
+                                }}
+                              >
+                                Открыть
+                              </button>
+                            </div>
+                          </article>
+                        )
+                      })}
+                    </div>
+
+                    {totalPages > 1 && (
+                      <div className="vacancies-pagination">
+                        <button
+                          type="button"
+                          className="vacancies-pagination__btn"
+                          onClick={() => goToPage(page - 1)}
+                          disabled={page === 1}
                         >
-                          <div className="vacancy-card__top">
-                            <div className="vacancy-card__main">
-                              <h3 className="vacancy-card__title">{vacancy.title}</h3>
-                              <div className="vacancy-card__company">{company || 'Компания не указана'}</div>
-                            </div>
+                          Назад
+                        </button>
 
-                            <div className="vacancy-card__salary">
-                              {formatSalary(vacancy.salary_min, vacancy.salary_max, currency)}
-                            </div>
-                          </div>
+                        <div className="vacancies-pagination__pages">
+                          {Array.from({ length: totalPages }).map((_, index) => {
+                            const pageNumber = index + 1
+                            return (
+                              <button
+                                key={pageNumber}
+                                type="button"
+                                className={`vacancies-pagination__page ${page === pageNumber ? 'is-active' : ''}`}
+                                onClick={() => goToPage(pageNumber)}
+                              >
+                                {pageNumber}
+                              </button>
+                            )
+                          })}
+                        </div>
 
-                          <div className="vacancy-card__meta">
-                            {city && <span className="vacancy-pill">{city}</span>}
-                            {profession && <span className="vacancy-pill">{profession}</span>}
-                            {employmentType && <span className="vacancy-pill">{employmentType}</span>}
-                            {workSchedule && <span className="vacancy-pill">{workSchedule}</span>}
-                            {experience && <span className="vacancy-pill">{experience}</span>}
-                          </div>
-
-                          {vacancy.description && (
-                            <p className="vacancy-card__description">
-                              {vacancy.description.length > 150
-                                ? `${vacancy.description.slice(0, 150)}...`
-                                : vacancy.description}
-                            </p>
-                          )}
-
-                          {skills.length > 0 && (
-                            <div className="vacancy-card__skills">
-                              {skills.slice(0, 6).map((skill) => (
-                                <span className="skill-tag" key={skill}>
-                                  {skill}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                          <div className="vacancy-card__bottom">
-                            <span className="vacancy-card__link">Подробнее о вакансии</span>
-                            <button
-                              type="button"
-                              className="btn btn--primary"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openVacancy(vacancy.id)
-                              }}
-                            >
-                              Открыть
-                            </button>
-                          </div>
-                        </article>
-                      )
-                    })}
-                  </div>
+                        <button
+                          type="button"
+                          className="vacancies-pagination__btn"
+                          onClick={() => goToPage(page + 1)}
+                          disabled={page === totalPages}
+                        >
+                          Вперёд
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

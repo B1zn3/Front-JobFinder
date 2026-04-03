@@ -3,11 +3,13 @@ import { HomePage } from '../pages/home/HomePage'
 import { LoginPage } from '../pages/auth/LoginPage'
 import { RegisterPage } from '../pages/auth/RegisterPage'
 import { VacancyDetailPage } from '../pages/vacancy/VacancyDetailPage'
+import { CompanyDetailPage } from '../pages/vacancy/CompanyDetailPage'
 import { ApplicantPage } from '../pages/applicant/ApplicantPage '
 import { EmployerPage } from '../pages/employer/EmployerPage'
 import { AdminPage } from '../pages/admin/AdminPage'
 import { RequireAuth } from '../shared/auth/RequireAuth'
 import { VacanciesPage } from '../pages/public/VacanciesPage' 
+import { CompaniesPage } from '../pages/public/CompaniesPage' 
 
 const router = createBrowserRouter([
   {
@@ -19,6 +21,8 @@ const router = createBrowserRouter([
       { path: '/register', element: <RegisterPage /> },
       { path: '/vacancies/:vacancyId', element: <VacancyDetailPage /> },
       { path: '/vacancies', element: <VacanciesPage /> },
+      { path: '/companies/:companyId', element: <CompanyDetailPage /> },
+      { path: '/companies', element: <CompaniesPage /> },
 
       {
         element: <RequireAuth allowedRoles={['applicant']} />,

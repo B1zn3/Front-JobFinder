@@ -32,28 +32,6 @@
 .vacancies-hero__content {
   position: relative;
   overflow: hidden;
-  padding: 44px 40px 40px;
-  border-radius: 32px;
-  background:
-    radial-gradient(circle at top right, rgba(249, 115, 22, 0.14), transparent 28%),
-    linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
-  color: #fff;
-  box-shadow: 0 20px 48px rgba(10, 38, 71, 0.18);
-}
-
-.vacancies-hero__content::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
-    radial-gradient(circle at left center, rgba(255, 255, 255, 0.06), transparent 34%);
-  pointer-events: none;
-}
-
-.vacancies-hero__content {
-  position: relative;
-  overflow: hidden;
   padding: 32px 32px 28px;
   border-radius: 32px;
   background:
@@ -116,6 +94,10 @@
   transition: var(--transition);
 }
 
+.vacancies-hero__input::placeholder {
+  color: #8b8f9c;
+}
+
 .vacancies-hero__input:focus {
   outline: none;
   box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.16);
@@ -163,59 +145,13 @@
   color: rgba(255, 255, 255, 0.76);
 }
 
-@media (max-width: 1024px) {
-  .vacancies-hero__content {
-    padding: 28px 24px 24px;
-    border-radius: 28px;
-  }
-
-  .vacancies-hero__title {
-    font-size: 34px;
-  }
-}
-
-@media (max-width: 768px) {
-  .vacancies-hero__content {
-    padding: 24px 18px 20px;
-    border-radius: 24px;
-  }
-
-  .vacancies-hero__title {
-    font-size: 28px;
-  }
-
-  .vacancies-hero__text {
-    font-size: 14px;
-  }
-
-  .vacancies-hero__search {
-    grid-template-columns: 1fr;
-    max-width: 100%;
-  }
-
-  .vacancies-hero__input,
-  .vacancies-hero__search .btn {
-    height: 52px;
-    border-radius: 16px;
-  }
-
-  .vacancies-stat {
-    min-width: calc(50% - 7px);
-  }
-}
-
-@media (max-width: 480px) {
-  .vacancies-hero__title {
-    font-size: 24px;
-  }
-
-  .vacancies-stat {
-    width: 100%;
-    min-width: 0;
-  }
-}
-
 /* catalog */
+
+.vacancies-catalog .container {
+  max-width: 1190px;
+  margin: 0 auto;
+  padding: 0 20px 80px;
+}
 
 .vacancies-section-header {
   display: flex;
@@ -227,7 +163,7 @@
 
 .vacancies-section-header .section-title {
   margin: 0;
-  line-height: 1;
+  line-height: 1.1;
 }
 
 .vacancies-result-badge {
@@ -327,6 +263,11 @@
   margin-bottom: 18px;
 }
 
+.filter-group:last-child,
+.custom-select:last-child {
+  margin-bottom: 0;
+}
+
 .filter-label {
   display: block;
   margin-bottom: 8px;
@@ -345,6 +286,10 @@
   background: var(--bg);
   font-size: 15px;
   color: var(--text);
+}
+
+.filter-control::placeholder {
+  color: #8b8f9c;
 }
 
 .filter-control:focus,
@@ -372,6 +317,7 @@
   align-items: center;
   cursor: pointer;
   transition: var(--transition);
+  text-align: left;
 }
 
 .custom-select__arrow {
@@ -426,6 +372,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 100%;
   padding: 22px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -450,6 +397,7 @@
 
 .vacancy-card__main {
   min-width: 0;
+  flex: 1;
 }
 
 .vacancy-card__title {
@@ -457,11 +405,16 @@
   font-size: 22px;
   line-height: 1.25;
   color: var(--text);
+  word-break: break-word;
 }
 
 .vacancy-card__company {
   color: var(--primary);
   font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .vacancy-card__salary {
@@ -472,7 +425,7 @@
   color: var(--primary);
   font-weight: 800;
   text-align: right;
-  max-width: 220px;
+  max-width: 260px;
 }
 
 .vacancy-card__meta,
@@ -511,6 +464,7 @@
   margin: 0;
   color: var(--text-secondary);
   line-height: 1.65;
+  word-break: break-word;
 }
 
 .vacancy-card__bottom {
@@ -525,7 +479,24 @@
   color: var(--text-secondary);
   font-weight: 600;
 }
+.vacancy-card button {
+  background: var(--primary);
+  color: #fff;
+  padding: 13px 20px;
+  border-radius: 16px;
+  font-weight: 600;
+  border: none;
+  transition: var(--transition);
+}
 
+.vacancy-card button:hover {
+  background: var(--primary-light);
+  transform: translateY(-1px);
+}
+
+.vacancy-card button:active {
+  transform: translateY(0);
+}
 /* states */
 
 .vacancies-empty {
@@ -542,7 +513,7 @@
 }
 
 .vacancies-empty p {
-  margin: 0;
+  margin: 0 0 18px;
   color: var(--text-secondary);
 }
 
@@ -589,29 +560,52 @@
   }
 
   .vacancies-hero__title {
-    font-size: 44px;
+    font-size: 34px;
   }
 
   .vacancies-hero__content {
     max-width: 100%;
+    padding: 28px 24px 24px;
+    border-radius: 28px;
   }
 }
 
 @media (max-width: 768px) {
+  .vacancies-hero .container,
+  .vacancies-catalog .container {
+    padding: 0 16px;
+  }
+
   .vacancies-hero {
-    padding: 24px 0;
+    margin: 16px 0 40px;
+  }
+
+  .vacancies-hero__content {
+    padding: 24px 18px 20px;
+    border-radius: 24px;
   }
 
   .vacancies-hero__title {
-    font-size: 34px;
+    font-size: 28px;
   }
 
   .vacancies-hero__text {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .vacancies-hero__search {
     grid-template-columns: 1fr;
+    max-width: 100%;
+  }
+
+  .vacancies-hero__input,
+  .vacancies-hero__search .btn {
+    height: 52px;
+    border-radius: 16px;
+  }
+
+  .vacancies-stat {
+    min-width: calc(50% - 7px);
   }
 
   .vacancies-section-header {
@@ -636,6 +630,10 @@
 }
 
 @media (max-width: 480px) {
+  .vacancies-hero__title {
+    font-size: 24px;
+  }
+
   .vacancies-stat {
     width: 100%;
     min-width: 0;
@@ -648,4 +646,52 @@
   .vacancies-empty {
     padding: 24px;
   }
+}
+
+.vacancies-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 28px;
+  flex-wrap: wrap;
+}
+
+.vacancies-pagination__pages {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.vacancies-pagination__btn,
+.vacancies-pagination__page {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.vacancies-pagination__btn:hover:not(:disabled),
+.vacancies-pagination__page:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.vacancies-pagination__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vacancies-pagination__page.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
 }
