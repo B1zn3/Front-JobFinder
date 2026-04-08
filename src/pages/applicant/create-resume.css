@@ -1,0 +1,594 @@
+.create-resume-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+}
+
+.create-resume-page__main {
+  flex: 1;
+  padding: 40px 0 190px;
+}
+
+.create-resume-page__container {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.create-resume-card {
+  position: relative;
+  background: transparent;
+  overflow: visible;
+}
+
+.create-resume-card__progress-label {
+  margin-bottom: 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.create-resume-card__title {
+  margin: 0 0 30px;
+  font-size: 34px;
+  line-height: 1.15;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.form-grid {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 28px;
+  overflow: visible;
+}
+
+.section-block {
+  margin-bottom: 30px;
+  overflow: visible;
+}
+
+.section-block__label {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 18px;
+}
+
+.field > span {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  padding: 0 18px;
+  border-radius: 20px;
+  border: 1px solid #d7deea;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 17px;
+  outline: none;
+  box-shadow: none;
+  box-sizing: border-box;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: #7a8ca6;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(10, 38, 71, 0.08);
+}
+
+.field textarea {
+  min-height: 176px;
+  padding: 18px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.segmented button {
+  min-height: 56px;
+  border-radius: 18px;
+  border: 1px solid #d7deea;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.segmented button:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.segmented button.is-active {
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(10, 38, 71, 0.06);
+}
+
+.date-grid {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  align-items: start;
+  overflow: visible;
+}
+
+.date-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.date-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.combo {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  z-index: auto;
+}
+
+.combo.is-open {
+  z-index: 1000;
+}
+
+.combo-input,
+.combo-field {
+  box-sizing: border-box;
+}
+
+.combo-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  padding: 0 18px;
+  border-radius: 20px;
+  border: 1px solid #d7deea;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 17px;
+  outline: none;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.combo-input::placeholder {
+  color: #7a8ca6;
+}
+
+.combo-input:focus,
+.combo-input.is-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(10, 38, 71, 0.08);
+}
+
+.combo-field {
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  padding: 0 18px;
+  border-radius: 20px;
+  border: 1px solid #d7deea;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 17px;
+  outline: none;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.combo.is-disabled .combo-field {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #f2f5f9;
+}
+
+.combo-field:hover {
+  border-color: #c7d2e1;
+}
+
+.combo-field.is-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(10, 38, 71, 0.08);
+}
+
+.combo-field__value,
+.combo-field__placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-field__value {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.combo-field__placeholder {
+  color: #7a8ca6;
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.combo-field__chevron {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #6a7b95;
+  transition: transform 0.18s ease;
+}
+
+.combo-field__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.combo__dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: 1001;
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 18px;
+  background: var(--bg-card);
+  border: 1px solid #d7deea;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
+  box-sizing: border-box;
+}
+
+.combo__option {
+  min-height: 46px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  font-size: 16px;
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
+  display: flex;
+  align-items: center;
+}
+
+.combo__option:hover,
+.combo__option.is-active {
+  background: rgba(10, 38, 71, 0.06);
+  color: var(--primary);
+}
+
+.combo__empty {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.picked-value {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(10, 38, 71, 0.05);
+  color: var(--primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.education-card,
+.experience-card {
+  margin-top: 20px;
+  padding: 28px;
+  border-radius: 28px;
+  background: var(--bg-card);
+  border: 1px solid #d7deea;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.education-card__head,
+.experience-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.education-card__head h3,
+.experience-card__head h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.education-card__dates,
+.experience-card__dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 18px;
+  align-items: start;
+  overflow: visible;
+}
+
+.education-card__date-group,
+.experience-card__date-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.education-card__date-group > .section-block__label,
+.experience-card__date-group > .section-block__label {
+  margin-bottom: 22px;
+}
+
+
+.experience-card__end-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  min-height: 32px;
+}
+
+.experience-card__end-head .section-block__label {
+  margin: 0;
+}
+
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  gap: 10px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.checkbox-inline input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.ghost-add-btn {
+  margin-top: 20px;
+  min-height: 56px;
+  padding: 0 18px;
+  border-radius: 18px;
+  border: 1px dashed #c5d2e3;
+  background: #f8fbff;
+  color: #57708f;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.ghost-add-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(10, 38, 71, 0.04);
+  transform: translateY(-1px);
+}
+
+.link-danger {
+  border: none;
+  background: transparent;
+  color: #d05757;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.chip {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: none;
+  background: #eef2f8;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+  transition: all 0.18s ease;
+}
+
+.chip:hover {
+  background: rgba(10, 38, 71, 0.08);
+  color: var(--primary);
+}
+
+.chip--selected {
+  background: rgba(10, 38, 71, 0.1);
+  color: var(--primary);
+}
+
+.chip-list--selected {
+  margin: 18px 0 24px;
+}
+
+.form-error {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(208, 87, 87, 0.08);
+  color: #b33f3f;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.resume-stepper-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 60;
+  background: rgba(247, 248, 251, 0.96);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid #dbe3ef;
+  padding: 14px 20px 18px;
+}
+
+.resume-stepper-footer__inner {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.resume-stepper-footer__progress {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.resume-stepper-footer__progress span {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: #d4dbe6;
+}
+
+.resume-stepper-footer__progress span.is-active {
+  background: var(--primary);
+}
+
+.resume-stepper-footer__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .create-resume-page__main {
+    padding: 24px 0 170px;
+  }
+
+  .create-resume-page__container {
+    padding: 0 16px;
+  }
+
+  .create-resume-card__title {
+    font-size: 28px;
+  }
+
+  .education-card,
+  .experience-card {
+    padding: 20px 18px;
+    border-radius: 22px;
+  }
+
+  .date-grid--three,
+  .date-grid--two,
+  .education-card__dates,
+  .experience-card__dates,
+  .segmented {
+    grid-template-columns: 1fr;
+  }
+
+  .experience-card__end-head {
+    flex-direction: column;
+    align-items: flex-start;
+    min-height: auto;
+  }
+
+  .checkbox-inline {
+    white-space: normal;
+  }
+
+  .resume-stepper-footer__actions {
+    flex-direction: column-reverse;
+  }
+
+  .resume-stepper-footer__actions .btn {
+    width: 100%;
+  }
+}
