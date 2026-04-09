@@ -86,7 +86,7 @@ const handleLogout = () => {
                   <NavLink to="/companies" className="header__nav-link">
                     Компании
                   </NavLink>
-                  <NavLink to="/applicant/responses" className="header__nav-link">
+                  <NavLink to="/responses" className="header__nav-link">
                     Отклики
                   </NavLink>
                 </>

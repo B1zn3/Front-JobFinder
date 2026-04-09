@@ -11,6 +11,8 @@ import { RequireAuth } from '../shared/auth/RequireAuth'
 import { VacanciesPage } from '../pages/public/VacanciesPage' 
 import { CompaniesPage } from '../pages/public/CompaniesPage' 
 import { CreateResumePage } from '../pages/applicant/CreateResumePage'
+import { ResumeDetailsPage } from '../pages/applicant/ResumeDetailsPage'
+import { MyApplicationsPage } from '../pages/applications/MyApplicationsPage'
 
 const router = createBrowserRouter([
   {
@@ -25,6 +27,9 @@ const router = createBrowserRouter([
       { path: '/companies/:companyId', element: <CompanyDetailPage /> },
       { path: '/companies', element: <CompaniesPage /> },
       { path: '/applicant/resume/create', element: <CreateResumePage /> },
+      { path: '/applicant/resume/:resumeId', element: <ResumeDetailsPage /> },
+      { path: '/applicant/resume/:resumeId/edit', element: <ResumeDetailsPage /> },
+      { path: '/responses', element: <MyApplicationsPage /> },
 
       {
         element: <RequireAuth allowedRoles={['applicant']} />,
