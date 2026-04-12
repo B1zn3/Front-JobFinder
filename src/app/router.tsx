@@ -2,14 +2,15 @@ import { createBrowserRouter, Outlet, RouterProvider } from 'react-router-dom'
 import { HomePage } from '../pages/home/HomePage'
 import { LoginPage } from '../pages/auth/LoginPage'
 import { RegisterPage } from '../pages/auth/RegisterPage'
-import { VacancyDetailPage } from '../pages/vacancy/VacancyDetailPage'
-import { CompanyDetailPage } from '../pages/vacancy/CompanyDetailPage'
+import { VacancyDetailPage } from '../pages/detailpages/VacancyDetailPage'
+import { CompanyDetailPage } from '../pages/detailpages/CompanyDetailPage'
 import { ApplicantPage } from '../pages/applicant/ApplicantrPage'
 import { EmployerPage } from '../pages/employer/EmployerPage'
 import { AdminPage } from '../pages/admin/AdminPage'
+import { AdminLoginPage } from '../pages/admin/AdminLoginPage'
 import { RequireAuth } from '../shared/auth/RequireAuth'
-import { VacanciesPage } from '../pages/public/VacanciesPage' 
-import { CompaniesPage } from '../pages/public/CompaniesPage' 
+import { VacanciesPage } from '../pages/public/VacanciesPage'
+import { CompaniesPage } from '../pages/public/CompaniesPage'
 import { CreateResumePage } from '../pages/applicant/CreateResumePage'
 import { ResumeDetailsPage } from '../pages/applicant/ResumeDetailsPage'
 import { MyApplicationsPage } from '../pages/applications/MyApplicationsPage'
@@ -22,10 +23,13 @@ const router = createBrowserRouter([
       { index: true, element: <HomePage /> },
       { path: '/login', element: <LoginPage /> },
       { path: '/register', element: <RegisterPage /> },
+      { path: '/admin/login', element: <AdminLoginPage /> },
+
       { path: '/vacancies/:vacancyId', element: <VacancyDetailPage /> },
       { path: '/vacancies', element: <VacanciesPage /> },
       { path: '/companies/:companyId', element: <CompanyDetailPage /> },
       { path: '/companies', element: <CompaniesPage /> },
+
       { path: '/applicant/resume/create', element: <CreateResumePage /> },
       { path: '/applicant/resume/:resumeId', element: <ResumeDetailsPage /> },
       { path: '/applicant/resume/:resumeId/edit', element: <ResumeDetailsPage /> },

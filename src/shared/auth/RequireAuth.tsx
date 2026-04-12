@@ -22,15 +22,28 @@ export const RequireAuth = ({ allowedRoles }: RequireAuthProps) => {
   }, [])
 
   if (checking) {
-    return <main style={{ padding: 24 }}>Проверяем сессию...</main>
+    return <div style={{ padding: 24 }}>Проверяем сессию...</div>
   }
 
   if (!isAuthorized) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    const adminLogin = allowedRoles?.includes('admin') ? '/admin/login' : '/login'
+
+    return (
+      <Navigate
+        to={adminLogin}
+        replace
+        state={{ from: location.pathname }}
+      />
+    )
   }
 
   const currentRole = authSession.getRole()
-  if (allowedRoles && currentRole && !allowedRoles.includes(currentRole as 'applicant' | 'company' | 'admin')) {
+
+  if (
+    allowedRoles &&
+    currentRole &&
+    !allowedRoles.includes(currentRole as 'applicant' | 'company' | 'admin')
+  ) {
     return <Navigate to="/" replace />
   }
 

@@ -1118,7 +1118,20 @@ export const ResumeDetailsPage = () => {
 
       <main className="resume-editor-page__main">
         <div className="resume-editor-page__container">
-          <section className="resume-editor-card resume-editor-hero">
+
+          {notice && (
+            <div
+              className={`resume-editor-notice ${
+                notice.type === 'success'
+                  ? 'resume-editor-notice--success'
+                  : 'resume-editor-notice--error'
+              }`}
+            >
+              {notice.text}
+            </div>
+          )}
+
+          <section className="resume-editor-card resume-editor-section">
             <div className="resume-editor-hero__topbar">
               <button
                 type="button"
@@ -1148,63 +1161,8 @@ export const ResumeDetailsPage = () => {
                 {formatDateTime(currentResume?.updated_at)}
               </div>
             </div>
-          </section>
-
-          {notice && (
-            <div
-              className={`resume-editor-notice ${
-                notice.type === 'success'
-                  ? 'resume-editor-notice--success'
-                  : 'resume-editor-notice--error'
-              }`}
-            >
-              {notice.text}
-            </div>
-          )}
-
-          <section className="resume-editor-card resume-editor-section">
             <div className="resume-editor-section__head">
-              <div>
-                <h2 className="resume-editor-section__title">Основная информация</h2>
-                <p className="resume-editor-section__subtitle">
-                  Профессия хранится в самом резюме.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                className="resume-editor-btn resume-editor-btn--primary"
-                onClick={handleSaveResume}
-                disabled={resumeMutation.isPending}
-              >
-                Сохранить резюме
-              </button>
             </div>
-
-            <label className="field">
-              <span>Профессия</span>
-
-              <SearchCombo
-                value={professionSearch}
-                placeholder="Поиск профессии"
-                isOpen={openCombo === 'profession'}
-                options={filteredProfessions}
-                activeValue={selectedProfessionId}
-                onFocus={() => setOpenCombo('profession')}
-                onChange={(value) => {
-                  setProfessionSearch(value)
-                  setSelectedProfessionId(null)
-                  setSelectedProfessionName('')
-                  setOpenCombo('profession')
-                }}
-                onSelect={(option) => {
-                  setSelectedProfessionId(Number(option.value))
-                  setSelectedProfessionName(option.label)
-                  setProfessionSearch(option.label)
-                  setOpenCombo(null)
-                }}
-              />
-            </label>
           </section>
 
           <section className="resume-editor-card resume-editor-section">

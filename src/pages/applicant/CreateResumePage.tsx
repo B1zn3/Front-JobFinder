@@ -202,6 +202,7 @@ type SearchComboProps = {
   onFocus: () => void
   onChange: (value: string) => void
   onSelect: (option: ComboOption) => void
+  onBlur?: () => void
 }
 
 const SearchCombo = ({
@@ -496,7 +497,6 @@ export const CreateResumePage = () => {
       }))
   }, [skillSearch, skills, selectedSkills])
 
-  const selectedCityName = useMemo(() => citySearch.trim(), [citySearch])
   const progressPercent = Math.round(((currentStep + 1) / STEPS.length) * 100)
 
   const validateProfessionStep = () => {
@@ -510,7 +510,7 @@ export const CreateResumePage = () => {
     if (!lastName.trim()) return 'Укажите фамилию.'
     if (!firstName.trim()) return 'Укажите имя.'
     if (!gender) return 'Укажите пол.'
-    if (!selectedCityName.trim()) return 'Укажите город проживания.'
+    if (!cityId) return 'Выберите город проживания из списка.'
     if (!phone.trim()) return 'Укажите номер телефона.'
 
     const day = Number(birthDay)
@@ -690,7 +690,7 @@ export const CreateResumePage = () => {
           first_name: firstName.trim(),
           middle_name: middleName.trim() || null,
           gender: gender === 'Мужской' ? 'м' : 'ж',
-          city_name: selectedCityName.trim(),
+          city_id: cityId,
           phone: phone.trim(),
           birth_date: buildBirthDate(birthDay, birthMonth, birthYear),
         })
