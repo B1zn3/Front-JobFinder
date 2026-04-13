@@ -1,6 +1,5 @@
 import { AxiosError } from 'axios'
-import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { http } from '../../shared/api/http'
 import { authSession, initializeSession } from '../../shared/auth/session'
@@ -12,13 +11,16 @@ type FastApiValidationError = {
 
 const translateValidationMessage = (msg?: string): string => {
   if (!msg) return 'Некорректные данные.'
+
   if (msg.includes('String should have at least')) {
     const num = msg.match(/(\d+)/)?.[1]
     return num ? `Строка должна содержать минимум ${num} символов.` : 'Слишком короткое значение.'
   }
+
   if (msg.includes('Field required')) return 'Обязательное поле не заполнено.'
   if (msg.includes('Input should be a valid email')) return 'Укажите корректный email.'
   if (/[A-Za-z]/.test(msg)) return 'Некорректные данные.'
+
   return msg
 }
 
@@ -26,7 +28,7 @@ const toErrorMessage = (error: unknown): string => {
   const axiosErr = error as AxiosError<FastApiValidationError>
 
   if (!axiosErr?.response) {
-    return 'Сервер недоступен. Проверь бэкенд, CORS и подключение к сети.'
+    return 'Сервер недоступен. Проверь бэкенд, CORS и подключение.'
   }
 
   const status = axiosErr.response.status
@@ -34,10 +36,8 @@ const toErrorMessage = (error: unknown): string => {
 
   if (Array.isArray(data?.detail)) {
     return (
-      data.detail
-        .map((item) => translateValidationMessage(item.msg))
-        .filter(Boolean)
-        .join('; ') || 'Ошибка валидации данных.'
+      data.detail.map((item) => translateValidationMessage(item.msg)).filter(Boolean).join('; ') ||
+      'Ошибка валидации данных.'
     )
   }
 
@@ -51,7 +51,7 @@ const toErrorMessage = (error: unknown): string => {
     case 401:
       return 'Неверный email или пароль администратора.'
     case 403:
-      return 'Доступ запрещён. У пользователя нет прав администратора.'
+      return 'Доступ запрещён.'
     case 404:
       return 'Пользователь не найден.'
     case 409:
@@ -68,6 +68,7 @@ const toErrorMessage = (error: unknown): string => {
 export const AdminLoginPage = () => {
   const navigate = useNavigate()
   const location = useLocation()
+
   const fromPath = (location.state as { from?: string } | null)?.from
 
   const [email, setEmail] = useState('')
@@ -89,8 +90,8 @@ export const AdminLoginPage = () => {
     void bootstrap()
   }, [fromPath, navigate])
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault()
     setLoading(true)
     setError('')
     setSuccess('')
@@ -104,9 +105,9 @@ export const AdminLoginPage = () => {
 
       authSession.setAccessToken(data.access_token)
       authSession.setRole('admin')
-      setSuccess('Вход выполнен успешно. Перенаправляем...')
+      setSuccess('Вход выполнен успешно.')
       navigate(fromPath || '/admin', { replace: true })
-    } catch (err: unknown) {
+    } catch (err) {
       setError(toErrorMessage(err))
     } finally {
       setLoading(false)
@@ -116,10 +117,10 @@ export const AdminLoginPage = () => {
   return (
     <div className="admin-login-page">
       <div className="admin-login-card">
-        <div className="admin-login-card__eyebrow">JobFinder Admin</div>
+        <div className="admin-login-card__eyebrow">JobFinder</div>
         <h1 className="admin-login-card__title">Вход для администратора</h1>
         <p className="admin-login-card__subtitle">
-          Используйте администраторский аккаунт для доступа к панели управления платформой.
+          Используйте учётную запись администратора для доступа к панели управления платформой.
         </p>
 
         <form className="admin-login-form" onSubmit={onSubmit}>
@@ -127,10 +128,10 @@ export const AdminLoginPage = () => {
             <span>Email</span>
             <input
               type="email"
-              autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="admin@jobfinder.by"
+              autoComplete="email"
             />
           </label>
 
@@ -138,34 +139,31 @@ export const AdminLoginPage = () => {
             <span>Пароль</span>
             <input
               type="password"
-              autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="Введите пароль"
+              autoComplete="current-password"
             />
           </label>
 
-          {error ? <div className="admin-login-message admin-login-message--error">{error}</div> : null}
+          {error ? <div className="admin-login-alert admin-login-alert--error">{error}</div> : null}
           {success ? (
-            <div className="admin-login-message admin-login-message--success">{success}</div>
+            <div className="admin-login-alert admin-login-alert--success">{success}</div>
           ) : null}
 
-          <button
-            type="submit"
-            className="admin-login-submit"
-            disabled={loading || !email.trim() || !password.trim()}
-          >
+          <button className="admin-login-submit" type="submit" disabled={loading}>
             {loading ? 'Входим...' : 'Войти в админку'}
           </button>
-        </form>
 
-        <button
-          type="button"
-          className="admin-login-back"
-          onClick={() => navigate('/')}
-        >
-          Вернуться на сайт
-        </button>
+          <button
+            type="button"
+            className="admin-login-back"
+            onClick={() => navigate('/')}
+            disabled={loading}
+          >
+            Вернуться на сайт
+          </button>
+        </form>
       </div>
     </div>
   )

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type JSX } from 'react'
+import axios from 'axios'
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type JSX,
+  type ReactNode,
+} from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { http } from '../../shared/api/http'
@@ -8,6 +15,7 @@ import './admin.css'
 type TabKey =
   | 'dashboard'
   | 'catalogs'
+  | 'admins'
   | 'users'
   | 'companies'
   | 'applicants'
@@ -15,7 +23,6 @@ type TabKey =
   | 'applications'
 
 type CatalogKey =
-  | 'roles'
   | 'cities'
   | 'professions'
   | 'skills'
@@ -32,6 +39,13 @@ type CatalogItem = {
   name: string
 }
 
+type AuthMeResponse = {
+  id: number
+  email: string
+  role: string
+  is_active: boolean
+}
+
 type DashboardResponse = {
   users_total?: number
   users_active?: number
@@ -39,11 +53,31 @@ type DashboardResponse = {
   applicants_total?: number
   vacancies_total?: number
   applications_total?: number
-  vacancies_by_status?: Array<{ name?: string; count?: number }>
-  applications_by_status?: Array<{ name?: string; count?: number }>
-  recent_users?: Array<{ id: number; email?: string; role?: string }>
-  recent_vacancies?: Array<{ id: number; title?: string }>
-  recent_applications?: Array<{ vacancy_id?: number; resume_id?: number; status?: string }>
+  vacancies_by_status?: Record<string, number>
+  applications_by_status?: Record<string, number>
+  recent_users?: Array<{
+    id: number
+    email?: string
+    role?: string
+    is_active?: boolean
+    created_at?: string | null
+  }>
+  recent_vacancies?: Array<{
+    id: number
+    title?: string
+    company_name?: string | null
+    status_name?: string | null
+    created_at?: string | null
+  }>
+  recent_applications?: Array<{
+    vacancy_id?: number
+    resume_id?: number
+    status?: string
+    vacancy_title?: string | null
+    company_name?: string | null
+    resume_profession?: string | null
+    created_at?: string | null
+  }>
 }
 
 type UserAdmin = {
@@ -60,23 +94,35 @@ type UserAdmin = {
 type CompanyAdmin = {
   id: number
   name: string
-  description?: string | null
   website?: string | null
-  is_active?: boolean
+  company_type_name?: string | null
+  cities?: string[]
+  vacancies_count?: number
   user_id?: number | null
-  moderation_status?: string | null
-  created_at?: string | null
+  user_email?: string | null
+  is_active: boolean
+  description?: string | null
+  logo?: string | null
+  founded_year?: number | null
+  employee_count?: number | null
+  vacancy_ids?: number[]
 }
 
 type ApplicantAdmin = {
   id: number
-  first_name?: string | null
-  last_name?: string | null
-  middle_name?: string | null
+  full_name: string
+  email?: string | null
   phone?: string | null
-  is_active?: boolean
-  user_id?: number | null
-  created_at?: string | null
+  city_name?: string | null
+  resumes_count?: number
+  educations_count?: number
+  is_active: boolean
+  birth_date?: string | null
+  gender?: string | null
+  photo?: string | null
+  resumes?: Array<Record<string, unknown>>
+  educations?: Array<Record<string, unknown>>
+  applications_count?: number
 }
 
 type VacancyAdmin = {
@@ -89,7 +135,11 @@ type VacancyAdmin = {
   status_id?: number | null
   salary_min?: number | null
   salary_max?: number | null
-  is_active?: boolean
+  currency?: string | null
+  company_name?: string | null
+  city_name?: string | null
+  profession_name?: string | null
+  status_name?: string | null
   created_at?: string | null
 }
 
@@ -97,16 +147,36 @@ type ApplicationAdmin = {
   vacancy_id: number
   resume_id: number
   status: string
-  company_id?: number | null
-  applicant_id?: number | null
   created_at?: string | null
   updated_at?: string | null
   vacancy_title?: string | null
   company_name?: string | null
-  resume_title?: string | null
+  applicant_name?: string | null
+  resume_profession?: string | null
+  city_name?: string | null
+  salary_min?: number | null
+  salary_max?: number | null
+}
+
+type AdminListItem = {
+  id: number
+  email: string
+  is_active: boolean
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+type AdminDetail = {
+  id: number
+  email: string
+  role: string
+  is_active: boolean
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 type DetailTarget =
+  | { kind: 'admin'; id: number }
   | { kind: 'user'; id: number }
   | { kind: 'company'; id: number }
   | { kind: 'applicant'; id: number }
@@ -114,7 +184,7 @@ type DetailTarget =
   | { kind: 'application'; vacancyId: number; resumeId: number }
   | null
 
-const catalogDefinitions: Array<{ key: CatalogKey; label: string }> = [ 
+const catalogDefinitions: Array<{ key: CatalogKey; label: string }> = [
   { key: 'cities', label: 'Города' },
   { key: 'professions', label: 'Профессии' },
   { key: 'skills', label: 'Навыки' },
@@ -140,32 +210,57 @@ const fieldLabels: Record<string, string> = {
   phone: 'Телефон',
   website: 'Сайт',
   user_id: 'ID пользователя',
+  user_email: 'Email пользователя',
   company_id: 'ID компании',
   applicant_id: 'ID соискателя',
   city_id: 'ID города',
+  city_name: 'Город',
   profession_id: 'ID профессии',
+  profession_name: 'Профессия',
   status_id: 'ID статуса',
+  status_name: 'Статус вакансии',
   employment_type_id: 'Тип занятости',
   work_schedule_id: 'График работы',
   experience_id: 'Опыт',
-  currency_id: 'Валюта',
+  currency_id: 'ID валюты',
+  currency: 'Валюта',
   salary_min: 'Зарплата от',
   salary_max: 'Зарплата до',
   moderation_status: 'Статус модерации',
   moderation_comment: 'Комментарий модерации',
   vacancy_id: 'ID вакансии',
+  vacancy_ids: 'Вакансии',
   resume_id: 'ID резюме',
   vacancy_title: 'Вакансия',
   company_name: 'Компания',
   resume_title: 'Резюме',
+  resume_profession: 'Профессия в резюме',
+  applicant_name: 'Соискатель',
   status: 'Статус',
   first_name: 'Имя',
   last_name: 'Фамилия',
   middle_name: 'Отчество',
+  full_name: 'ФИО',
   educations: 'Образование',
   resumes: 'Резюме',
   applications: 'Отклики',
   vacancies: 'Вакансии',
+  birth_date: 'Дата рождения',
+  gender: 'Пол',
+  photo: 'Фото',
+  company_type_name: 'Тип компании',
+  cities: 'Города',
+  vacancies_count: 'Количество вакансий',
+  resumes_count: 'Количество резюме',
+  educations_count: 'Количество образований',
+  applications_count: 'Количество откликов',
+  founded_year: 'Год основания',
+  employee_count: 'Количество сотрудников',
+  skills: 'Навыки',
+  work_experiences_count: 'Опытов работы',
+  institution_name: 'Учебное заведение',
+  start_date: 'Дата начала',
+  end_date: 'Дата окончания',
 }
 
 const statusLabels: Record<string, string> = {
@@ -227,6 +322,35 @@ const getUserLabel = (user: UserAdmin) => {
   return 'Соискатель'
 }
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data?.detail
+
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail
+    }
+
+    if (Array.isArray(detail)) {
+      const joined = detail
+        .map((item) => (typeof item?.msg === 'string' ? item.msg : ''))
+        .filter(Boolean)
+        .join('; ')
+
+      if (joined) return joined
+    }
+
+    if (typeof error.message === 'string' && error.message.trim()) {
+      return error.message
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+
+  return fallback
+}
+
 const normalizeUser = (item: Record<string, unknown>): UserAdmin => ({
   id: safeNumber(item.id) ?? 0,
   email: safeString(item.email) || 'Без email',
@@ -241,23 +365,35 @@ const normalizeUser = (item: Record<string, unknown>): UserAdmin => ({
 const normalizeCompany = (item: Record<string, unknown>): CompanyAdmin => ({
   id: safeNumber(item.id) ?? 0,
   name: safeString(item.name) || 'Без названия',
-  description: safeString(item.description) || null,
   website: safeString(item.website) || null,
-  is_active: typeof item.is_active === 'boolean' ? item.is_active : true,
+  company_type_name: safeString(item.company_type_name) || null,
+  cities: toArray<string>(item.cities),
+  vacancies_count: safeNumber(item.vacancies_count) ?? 0,
   user_id: safeNumber(item.user_id),
-  moderation_status: safeString(item.moderation_status) || null,
-  created_at: safeString(item.created_at) || null,
+  user_email: safeString(item.user_email) || null,
+  is_active: typeof item.is_active === 'boolean' ? item.is_active : true,
+  description: safeString(item.description) || null,
+  logo: safeString(item.logo) || null,
+  founded_year: safeNumber(item.founded_year),
+  employee_count: safeNumber(item.employee_count),
+  vacancy_ids: toArray<number>(item.vacancy_ids),
 })
 
 const normalizeApplicant = (item: Record<string, unknown>): ApplicantAdmin => ({
   id: safeNumber(item.id) ?? 0,
-  first_name: safeString(item.first_name) || null,
-  last_name: safeString(item.last_name) || null,
-  middle_name: safeString(item.middle_name) || null,
+  full_name: safeString(item.full_name) || `Соискатель #${safeNumber(item.id) ?? 0}`,
+  email: safeString(item.email) || null,
   phone: safeString(item.phone) || null,
+  city_name: safeString(item.city_name) || null,
+  resumes_count: safeNumber(item.resumes_count) ?? 0,
+  educations_count: safeNumber(item.educations_count) ?? 0,
   is_active: typeof item.is_active === 'boolean' ? item.is_active : true,
-  user_id: safeNumber(item.user_id),
-  created_at: safeString(item.created_at) || null,
+  birth_date: safeString(item.birth_date) || null,
+  gender: safeString(item.gender) || null,
+  photo: safeString(item.photo) || null,
+  resumes: toArray<Record<string, unknown>>(item.resumes),
+  educations: toArray<Record<string, unknown>>(item.educations),
+  applications_count: safeNumber(item.applications_count) ?? 0,
 })
 
 const normalizeVacancy = (item: Record<string, unknown>): VacancyAdmin => ({
@@ -270,7 +406,11 @@ const normalizeVacancy = (item: Record<string, unknown>): VacancyAdmin => ({
   status_id: safeNumber(item.status_id),
   salary_min: safeNumber(item.salary_min),
   salary_max: safeNumber(item.salary_max),
-  is_active: typeof item.is_active === 'boolean' ? item.is_active : true,
+  currency: safeString(item.currency) || null,
+  company_name: safeString(item.company_name) || null,
+  city_name: safeString(item.city_name) || null,
+  profession_name: safeString(item.profession_name) || null,
+  status_name: safeString(item.status_name) || null,
   created_at: safeString(item.created_at) || null,
 })
 
@@ -278,14 +418,29 @@ const normalizeApplication = (item: Record<string, unknown>): ApplicationAdmin =
   vacancy_id: safeNumber(item.vacancy_id) ?? 0,
   resume_id: safeNumber(item.resume_id) ?? 0,
   status: safeString(item.status) || 'pending',
-  company_id: safeNumber(item.company_id),
-  applicant_id: safeNumber(item.applicant_id),
   created_at: safeString(item.created_at) || null,
   updated_at: safeString(item.updated_at) || null,
   vacancy_title: safeString(item.vacancy_title) || null,
   company_name: safeString(item.company_name) || null,
-  resume_title: safeString(item.resume_title) || null,
+  applicant_name: safeString(item.applicant_name) || null,
+  resume_profession: safeString(item.resume_profession) || null,
+  city_name: safeString(item.city_name) || null,
+  salary_min: safeNumber(item.salary_min),
+  salary_max: safeNumber(item.salary_max),
 })
+
+const normalizeAdmin = (item: Record<string, unknown>): AdminListItem => ({
+  id: safeNumber(item.id) ?? 0,
+  email: safeString(item.email) || 'Без email',
+  is_active: typeof item.is_active === 'boolean' ? item.is_active : true,
+  created_at: safeString(item.created_at) || null,
+  updated_at: safeString(item.updated_at) || null,
+})
+
+const fetchAuthMe = async (): Promise<AuthMeResponse> => {
+  const { data } = await http.get('/auth/me')
+  return data
+}
 
 const fetchDashboard = async (): Promise<DashboardResponse> => {
   const { data } = await http.get('/admin/dashboard')
@@ -294,7 +449,7 @@ const fetchDashboard = async (): Promise<DashboardResponse> => {
 
 const fetchCatalog = async (name: string): Promise<CatalogItem[]> => {
   const { data } = await http.get(`/admin/catalogs/${name}`, {
-    params: { skip: 0, limit: 100 },
+    params: { skip: 0, limit: 200 },
   })
 
   return toArray<Record<string, unknown>>(data).map((item) => ({
@@ -338,6 +493,13 @@ const fetchApplications = async (): Promise<ApplicationAdmin[]> => {
   return toArray<Record<string, unknown>>(data).map(normalizeApplication)
 }
 
+const fetchAdmins = async (): Promise<AdminListItem[]> => {
+  const { data } = await http.get('/admin/admins', {
+    params: { skip: 0, limit: 500 },
+  })
+  return toArray<Record<string, unknown>>(data).map(normalizeAdmin)
+}
+
 const fetchUserDetail = async (id: number) => {
   const { data } = await http.get(`/admin/users/${id}`)
   return data as Record<string, unknown>
@@ -363,7 +525,88 @@ const fetchApplicationDetail = async (vacancyId: number, resumeId: number) => {
   return data as Record<string, unknown>
 }
 
-const renderDetailValue = (key: string, value: unknown) => {
+const fetchAdminDetail = async (id: number): Promise<AdminDetail> => {
+  const { data } = await http.get(`/admin/admins/${id}`)
+  return data
+}
+
+const Modal = ({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string
+  subtitle?: string
+  onClose: () => void
+  children: ReactNode
+}) => {
+  return (
+    <div className="admin-modal" onClick={onClose}>
+      <div className="admin-modal__dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="admin-modal__header">
+          <div>
+            <div className="admin-modal__eyebrow">Администрирование</div>
+            <h3>{title}</h3>
+            {subtitle ? <p>{subtitle}</p> : null}
+          </div>
+
+          <button type="button" className="admin-modal__close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <div className="admin-modal__body">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+const CustomSelect = ({
+  value,
+  placeholder,
+  options,
+  isOpen,
+  onToggle,
+  onSelect,
+}: {
+  value: string
+  placeholder: string
+  options: Array<{ value: string | number; label: string }>
+  isOpen: boolean
+  onToggle: () => void
+  onSelect: (value: string | number) => void
+}) => (
+  <div className={`admin-custom-select ${isOpen ? 'is-open' : ''}`}>
+    <button type="button" className="admin-custom-select__trigger" onClick={onToggle}>
+      <span>{value || placeholder}</span>
+      <span className="admin-custom-select__arrow">▾</span>
+    </button>
+
+    {isOpen ? (
+      <div className="admin-custom-select__dropdown">
+        {options.map((option) => (
+          <button
+            key={String(option.value)}
+            type="button"
+            className={`admin-custom-select__option ${value === option.label ? 'is-active' : ''}`}
+            onClick={() => onSelect(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    ) : null}
+  </div>
+)
+
+const renderPrimitiveBadge = (value: boolean) => (
+  <span className={`admin-badge ${value ? 'admin-badge--success' : 'admin-badge--danger'}`}>
+    {value ? 'Да' : 'Нет'}
+  </span>
+)
+
+const renderStructuredValue = (key: string, value: unknown): ReactNode => {
   if (value === null || value === undefined || value === '') {
     return <span className="admin-detail-empty">—</span>
   }
@@ -376,16 +619,19 @@ const renderDetailValue = (key: string, value: unknown) => {
     )
   }
 
-  if (key.includes('created_at') || key.includes('updated_at') || key.includes('moderated_at')) {
+  if (
+    key.includes('created_at') ||
+    key.includes('updated_at') ||
+    key.includes('moderated_at') ||
+    key.includes('birth_date') ||
+    key === 'start_date' ||
+    key === 'end_date'
+  ) {
     return <span>{formatDateTime(safeString(value) || null)}</span>
   }
 
   if (typeof value === 'boolean') {
-    return (
-      <span className={`admin-badge ${value ? 'admin-badge--success' : 'admin-badge--danger'}`}>
-        {value ? 'Да' : 'Нет'}
-      </span>
-    )
+    return renderPrimitiveBadge(value)
   }
 
   if (Array.isArray(value)) {
@@ -393,7 +639,7 @@ const renderDetailValue = (key: string, value: unknown) => {
       return <span className="admin-detail-empty">Пусто</span>
     }
 
-    const primitiveArray = value.every(
+    const isPrimitiveArray = value.every(
       (item) =>
         typeof item === 'string' ||
         typeof item === 'number' ||
@@ -401,7 +647,7 @@ const renderDetailValue = (key: string, value: unknown) => {
         item === null,
     )
 
-    if (primitiveArray) {
+    if (isPrimitiveArray) {
       return (
         <div className="admin-chip-list">
           {value.map((item, index) => (
@@ -414,11 +660,20 @@ const renderDetailValue = (key: string, value: unknown) => {
     }
 
     return (
-      <div className="admin-json-stack">
+      <div className="admin-nested-stack">
         {value.map((item, index) => (
-          <pre key={index} className="admin-json-block">
-            {JSON.stringify(item, null, 2)}
-          </pre>
+          <div key={index} className="admin-nested-card">
+            {typeof item === 'object' && item !== null ? (
+              Object.entries(item).map(([nestedKey, nestedValue]) => (
+                <div key={nestedKey} className="admin-nested-row">
+                  <span>{prettifyKey(nestedKey)}</span>
+                  <div>{renderStructuredValue(nestedKey, nestedValue)}</div>
+                </div>
+              ))
+            ) : (
+              <span>{String(item)}</span>
+            )}
+          </div>
         ))}
       </div>
     )
@@ -426,10 +681,30 @@ const renderDetailValue = (key: string, value: unknown) => {
 
   if (typeof value === 'object') {
     return (
-      <pre className="admin-json-block">
-        {JSON.stringify(value, null, 2)}
-      </pre>
+      <div className="admin-nested-card">
+        {Object.entries(value as Record<string, unknown>).map(([nestedKey, nestedValue]) => (
+          <div key={nestedKey} className="admin-nested-row">
+            <span>{prettifyKey(nestedKey)}</span>
+            <div>{renderStructuredValue(nestedKey, nestedValue)}</div>
+          </div>
+        ))}
+      </div>
     )
+  }
+
+  if (key === 'status' && typeof value === 'string') {
+    return <span>{statusLabels[value] || value}</span>
+  }
+
+  if (key === 'role' && typeof value === 'string') {
+    if (value === 'admin') return 'Администратор'
+    if (value === 'company') return 'Работодатель'
+    if (value === 'applicant') return 'Соискатель'
+  }
+
+  if (key === 'gender' && typeof value === 'string') {
+    if (value === 'м') return 'Мужской'
+    if (value === 'ж') return 'Женский'
   }
 
   return <span>{String(value)}</span>
@@ -448,20 +723,61 @@ export const AdminPage = () => {
   const [search, setSearch] = useState('')
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null)
   const [catalogSelectOpen, setCatalogSelectOpen] = useState(false)
-useEffect(() => {
-  const handleDocumentClick = (event: MouseEvent) => {
-    const target = event.target as HTMLElement
-    if (!target.closest('.custom-select')) {
-      setCatalogSelectOpen(false)
-    }
-  }
 
-  document.addEventListener('click', handleDocumentClick)
-  return () => document.removeEventListener('click', handleDocumentClick)
-}, [])
+  const [isCreateAdminOpen, setIsCreateAdminOpen] = useState(false)
+  const [editingAdmin, setEditingAdmin] = useState<AdminListItem | null>(null)
+  const [deletingAdmin, setDeletingAdmin] = useState<AdminListItem | null>(null)
+
+  const [newAdminEmail, setNewAdminEmail] = useState('')
+  const [newAdminPassword, setNewAdminPassword] = useState('')
+
+  const [editAdminEmail, setEditAdminEmail] = useState('')
+  const [editAdminPassword, setEditAdminPassword] = useState('')
+  const [editAdminIsActive, setEditAdminIsActive] = useState(true)
+  const [editAdminCurrentPassword, setEditAdminCurrentPassword] = useState('')
+
+  const [deleteAdminCurrentPassword, setDeleteAdminCurrentPassword] = useState('')
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.admin-custom-select')) {
+        setCatalogSelectOpen(false)
+      }
+    }
+
+    document.addEventListener('click', handleDocumentClick)
+    return () => document.removeEventListener('click', handleDocumentClick)
+  }, [])
+
+  useEffect(() => {
+    const hasModal =
+      !!detailTarget || isCreateAdminOpen || !!editingAdmin || !!deletingAdmin
+
+    document.body.style.overflow = hasModal ? 'hidden' : ''
+
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [detailTarget, isCreateAdminOpen, editingAdmin, deletingAdmin])
+
+  const authMeQuery = useQuery({
+    queryKey: ['admin-auth-me'],
+    queryFn: fetchAuthMe,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
   const dashboardQuery = useQuery({
     queryKey: ['admin-dashboard'],
     queryFn: fetchDashboard,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const adminsQuery = useQuery({
+    queryKey: ['admin-admins'],
+    queryFn: fetchAdmins,
     retry: false,
     refetchOnWindowFocus: false,
   })
@@ -563,6 +879,14 @@ useEffect(() => {
     refetchOnWindowFocus: false,
   })
 
+  const adminDetailQuery = useQuery({
+    queryKey: ['admin-detail', detailTarget?.kind === 'admin' ? detailTarget.id : null],
+    queryFn: () => fetchAdminDetail((detailTarget as { kind: 'admin'; id: number }).id),
+    enabled: detailTarget?.kind === 'admin',
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
   const toggleUserMutation = useMutation({
     mutationFn: async (user: UserAdmin) => {
       await http.patch(`/admin/users/${user.id}/status`, {
@@ -574,15 +898,15 @@ useEffect(() => {
       await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
     },
-    onError: () => {
-      setMessage('Не удалось изменить статус пользователя.')
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось изменить статус пользователя.'))
     },
   })
 
   const toggleCompanyMutation = useMutation({
     mutationFn: async (company: CompanyAdmin) => {
       await http.patch(`/admin/companies/${company.id}/status`, {
-        is_active: !(company.is_active ?? true),
+        is_active: !company.is_active,
       })
     },
     onSuccess: async () => {
@@ -590,15 +914,15 @@ useEffect(() => {
       await queryClient.invalidateQueries({ queryKey: ['admin-companies'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
     },
-    onError: () => {
-      setMessage('Не удалось обновить статус компании.')
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось обновить статус компании.'))
     },
   })
 
   const toggleApplicantMutation = useMutation({
     mutationFn: async (applicant: ApplicantAdmin) => {
       await http.patch(`/admin/applicants/${applicant.id}/status`, {
-        is_active: !(applicant.is_active ?? true),
+        is_active: !applicant.is_active,
       })
     },
     onSuccess: async () => {
@@ -606,8 +930,8 @@ useEffect(() => {
       await queryClient.invalidateQueries({ queryKey: ['admin-applicants'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
     },
-    onError: () => {
-      setMessage('Не удалось обновить статус соискателя.')
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось обновить статус соискателя.'))
     },
   })
 
@@ -622,8 +946,8 @@ useEffect(() => {
       await queryClient.invalidateQueries({ queryKey: ['admin-vacancies'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
     },
-    onError: () => {
-      setMessage('Не удалось обновить статус вакансии.')
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось обновить статус вакансии.'))
     },
   })
 
@@ -638,8 +962,8 @@ useEffect(() => {
       await queryClient.invalidateQueries({ queryKey: ['admin-applications'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
     },
-    onError: () => {
-      setMessage('Не удалось обновить статус отклика.')
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось обновить статус отклика.'))
     },
   })
 
@@ -654,8 +978,8 @@ useEffect(() => {
       setMessage('Элемент справочника создан.')
       await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] })
     },
-    onError: () => {
-      setMessage('Не удалось создать элемент справочника.')
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось создать элемент справочника.'))
     },
   })
 
@@ -671,8 +995,8 @@ useEffect(() => {
       setMessage('Элемент справочника обновлён.')
       await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] })
     },
-    onError: () => {
-      setMessage('Не удалось обновить элемент справочника.')
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось обновить элемент справочника.'))
     },
   })
 
@@ -684,10 +1008,90 @@ useEffect(() => {
       setMessage('Элемент справочника удалён.')
       await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] })
     },
-    onError: () => {
-      setMessage('Не удалось удалить элемент справочника. Возможно, он уже используется.')
+    onError: (error) => {
+      setMessage(
+        getErrorMessage(
+          error,
+          'Не удалось удалить элемент справочника. Возможно, он уже используется.',
+        ),
+      )
     },
   })
+
+  const createAdminMutation = useMutation({
+    mutationFn: async () => {
+      await http.post('/admin/admins', {
+        email: newAdminEmail.trim(),
+        password: newAdminPassword,
+      })
+    },
+    onSuccess: async () => {
+      setNewAdminEmail('')
+      setNewAdminPassword('')
+      setIsCreateAdminOpen(false)
+      setMessage('Новый администратор создан.')
+      await queryClient.invalidateQueries({ queryKey: ['admin-admins'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
+    },
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось создать администратора.'))
+    },
+  })
+
+  const updateAdminMutation = useMutation({
+    mutationFn: async (adminId: number) => {
+      await http.patch(`/admin/admins/${adminId}`, {
+        email: editAdminEmail.trim(),
+        new_password: editAdminPassword.trim() || null,
+        is_active: editAdminIsActive,
+        current_admin_password: editAdminCurrentPassword,
+      })
+    },
+    onSuccess: async () => {
+      setEditingAdmin(null)
+      setEditAdminEmail('')
+      setEditAdminPassword('')
+      setEditAdminCurrentPassword('')
+      setMessage('Администратор обновлён.')
+      await queryClient.invalidateQueries({ queryKey: ['admin-admins'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
+    },
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось обновить администратора.'))
+    },
+  })
+
+  const deleteAdminMutation = useMutation({
+    mutationFn: async (adminId: number) => {
+      await http.delete(`/admin/admins/${adminId}`, {
+        data: {
+          current_admin_password: deleteAdminCurrentPassword,
+        },
+      })
+    },
+    onSuccess: async () => {
+      setDeletingAdmin(null)
+      setDeleteAdminCurrentPassword('')
+      setMessage('Администратор удалён.')
+      await queryClient.invalidateQueries({ queryKey: ['admin-admins'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
+    },
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось удалить администратора.'))
+    },
+  })
+
+  const filteredAdmins = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    if (!value) return adminsQuery.data || []
+
+    return (adminsQuery.data || []).filter((item) => {
+      return item.email.toLowerCase().includes(value) || String(item.id).includes(value)
+    })
+  }, [search, adminsQuery.data])
 
   const filteredUsers = useMemo(() => {
     const value = search.trim().toLowerCase()
@@ -715,21 +1119,15 @@ useEffect(() => {
     })
   }, [search, companiesQuery.data])
 
-  const selectedCatalogLabel = useMemo(() => {
-    return (
-        catalogDefinitions.find((item) => item.key === selectedCatalog)?.label || 'Выберите справочник'
-    )
-    }, [selectedCatalog])
-
   const filteredApplicants = useMemo(() => {
     const value = search.trim().toLowerCase()
     if (!value) return applicantsQuery.data || []
 
     return (applicantsQuery.data || []).filter((item) => {
-      const fullName = [item.last_name, item.first_name, item.middle_name].filter(Boolean).join(' ')
       return (
-        fullName.toLowerCase().includes(value) ||
+        item.full_name.toLowerCase().includes(value) ||
         safeString(item.phone).toLowerCase().includes(value) ||
+        safeString(item.email).toLowerCase().includes(value) ||
         String(item.id).includes(value)
       )
     })
@@ -743,6 +1141,7 @@ useEffect(() => {
       return (
         item.title.toLowerCase().includes(value) ||
         safeString(item.description).toLowerCase().includes(value) ||
+        safeString(item.company_name).toLowerCase().includes(value) ||
         String(item.id).includes(value)
       )
     })
@@ -756,7 +1155,8 @@ useEffect(() => {
       return (
         safeString(item.vacancy_title).toLowerCase().includes(value) ||
         safeString(item.company_name).toLowerCase().includes(value) ||
-        safeString(item.resume_title).toLowerCase().includes(value) ||
+        safeString(item.resume_profession).toLowerCase().includes(value) ||
+        safeString(item.applicant_name).toLowerCase().includes(value) ||
         String(item.vacancy_id).includes(value) ||
         String(item.resume_id).includes(value)
       )
@@ -772,27 +1172,50 @@ useEffect(() => {
       vacancies_total: vacanciesQuery.data?.length ?? 0,
       applications_total: applicationsQuery.data?.length ?? 0,
     }
-  }, [usersQuery.data, companiesQuery.data, applicantsQuery.data, vacanciesQuery.data, applicationsQuery.data])
+  }, [
+    usersQuery.data,
+    companiesQuery.data,
+    applicantsQuery.data,
+    vacanciesQuery.data,
+    applicationsQuery.data,
+  ])
 
   const dashboard = {
     ...fallbackStats,
     ...(dashboardQuery.data || {}),
   }
+  const maskEmail = (email: string) => {
+    const [localPart = '', domain = ''] = email.split('@')
+
+    if (!domain) return email
+
+    const visible = localPart.slice(0, 3)
+    const maskedLength = Math.max(localPart.length - visible.length, 3)
+    const masked = '•'.repeat(maskedLength)
+
+    return `${visible}${masked}@${domain}`
+  }
+  const selectedCatalogLabel = useMemo(() => {
+    return catalogDefinitions.find((item) => item.key === selectedCatalog)?.label || 'Справочник'
+  }, [selectedCatalog])
 
   const detailData =
-    detailTarget?.kind === 'user'
-      ? userDetailQuery.data
-      : detailTarget?.kind === 'company'
-        ? companyDetailQuery.data
-        : detailTarget?.kind === 'applicant'
-          ? applicantDetailQuery.data
-          : detailTarget?.kind === 'vacancy'
-            ? vacancyDetailQuery.data
-            : detailTarget?.kind === 'application'
-              ? applicationDetailQuery.data
-              : null
+    detailTarget?.kind === 'admin'
+      ? adminDetailQuery.data
+      : detailTarget?.kind === 'user'
+        ? userDetailQuery.data
+        : detailTarget?.kind === 'company'
+          ? companyDetailQuery.data
+          : detailTarget?.kind === 'applicant'
+            ? applicantDetailQuery.data
+            : detailTarget?.kind === 'vacancy'
+              ? vacancyDetailQuery.data
+              : detailTarget?.kind === 'application'
+                ? applicationDetailQuery.data
+                : null
 
   const detailLoading =
+    adminDetailQuery.isLoading ||
     userDetailQuery.isLoading ||
     companyDetailQuery.isLoading ||
     applicantDetailQuery.isLoading ||
@@ -852,14 +1275,15 @@ useEffect(() => {
               dashboard.recent_users?.map((item) => (
                 <div key={item.id} className="admin-list-row">
                   <div>
-                    <strong>{item.email || `Пользователь #${item.id}`}</strong>
+                    <strong className="admin-email-text">
+                      {item.email ? maskEmail(item.email) : `Пользователь #${item.id}`}
+                    </strong>
                     <p>
-                      {getUserLabel({
-                        id: item.id,
-                        email: item.email || '',
-                        role: (item.role as UserAdmin['role']) || 'applicant',
-                        is_active: true,
-                      })}
+                      {item.role === 'admin'
+                        ? 'Администратор'
+                        : item.role === 'company'
+                          ? 'Работодатель'
+                          : 'Соискатель'}
                     </p>
                   </div>
 
@@ -867,8 +1291,8 @@ useEffect(() => {
                     type="button"
                     className="admin-action-btn"
                     onClick={() => {
-                      setActiveTab('users')
-                      openDetail({ kind: 'user', id: item.id })
+                      setActiveTab(item.role === 'admin' ? 'admins' : 'users')
+                      openDetail(item.role === 'admin' ? { kind: 'admin', id: item.id } : { kind: 'user', id: item.id })
                     }}
                   >
                     Подробнее
@@ -892,7 +1316,7 @@ useEffect(() => {
                 <div key={item.id} className="admin-list-row">
                   <div>
                     <strong>{item.title || `Вакансия #${item.id}`}</strong>
-                    <p>ID: {item.id}</p>
+                    <p>{item.company_name || 'Компания не указана'}</p>
                   </div>
 
                   <button
@@ -923,9 +1347,7 @@ useEffect(() => {
               dashboard.recent_applications?.map((item, index) => (
                 <div key={`${item.vacancy_id}-${item.resume_id}-${index}`} className="admin-list-row">
                   <div>
-                    <strong>
-                      Вакансия #{item.vacancy_id} / Резюме #{item.resume_id}
-                    </strong>
+                    <strong>{item.vacancy_title || `Вакансия #${item.vacancy_id}`}</strong>
                     <p>{statusLabels[item.status || ''] || item.status || 'Без статуса'}</p>
                   </div>
 
@@ -962,38 +1384,22 @@ useEffect(() => {
         <div className="admin-card__header admin-card__header--catalogs">
           <h3>Справочники</h3>
 
-         <div className={`custom-select ${catalogSelectOpen ? 'is-open' : ''}`}>
-                <button
-                    type="button"
-                    className={`custom-select__trigger ${catalogSelectOpen ? 'is-open' : ''}`}
-                    onClick={() => setCatalogSelectOpen((prev) => !prev)}
-                >
-                    <span>{selectedCatalogLabel}</span>
-                    <span className="custom-select__arrow">▾</span>
-                </button>
-
-                {catalogSelectOpen && (
-                    <div className="custom-select__dropdown">
-                    {catalogDefinitions.map((item) => (
-                        <button
-                        key={item.key}
-                        type="button"
-                        className={`custom-select__option ${
-                            selectedCatalog === item.key ? 'is-active' : ''
-                        }`}
-                        onClick={() => {
-                            setSelectedCatalog(item.key)
-                            setEditingCatalogId(null)
-                            setEditingCatalogName('')
-                            setCatalogSelectOpen(false)
-                        }}
-                        >
-                        {item.label}
-                        </button>
-                    ))}
-                    </div>
-                )}
-                </div>
+          <CustomSelect
+            value={selectedCatalogLabel}
+            placeholder="Выберите справочник"
+            options={catalogDefinitions.map((item) => ({
+              value: item.key,
+              label: item.label,
+            }))}
+            isOpen={catalogSelectOpen}
+            onToggle={() => setCatalogSelectOpen((prev) => !prev)}
+            onSelect={(value) => {
+              setSelectedCatalog(value as CatalogKey)
+              setEditingCatalogId(null)
+              setEditingCatalogName('')
+              setCatalogSelectOpen(false)
+            }}
+          />
         </div>
 
         <div className="admin-inline-form admin-inline-form--catalogs">
@@ -1088,6 +1494,89 @@ useEffect(() => {
     </div>
   )
 
+  const renderAdmins = () => (
+    <div className="admin-panel">
+      <div className="admin-card">
+        <div className="admin-card__header">
+          <h3>Администраторы</h3>
+
+          <div className="admin-header-actions">
+            <input
+              className="admin-input admin-input--search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск по email или ID"
+            />
+            <button
+              type="button"
+              className="admin-primary-btn"
+              onClick={() => {
+                setNewAdminEmail('')
+                setNewAdminPassword('')
+                setIsCreateAdminOpen(true)
+              }}
+            >
+              Создать администратора
+            </button>
+          </div>
+        </div>
+
+        <div className="admin-stack">
+          {filteredAdmins.map((admin) => (
+            <div key={admin.id} className="admin-list-row">
+              <div>
+                <strong>{admin.email}</strong>
+                <p>
+                  ID: {admin.id} • {admin.is_active ? 'Активен' : 'Заблокирован'} • Создан:{' '}
+                  {formatDateTime(admin.created_at)}
+                </p>
+              </div>
+
+              <div className="admin-actions-row">
+                <button
+                  type="button"
+                  className="admin-action-btn"
+                  onClick={() => openDetail({ kind: 'admin', id: admin.id })}
+                >
+                  Подробнее
+                </button>
+
+                <button
+                  type="button"
+                  className="admin-action-btn"
+                  onClick={() => {
+                    setEditingAdmin(admin)
+                    setEditAdminEmail(admin.email)
+                    setEditAdminPassword('')
+                    setEditAdminIsActive(admin.is_active)
+                    setEditAdminCurrentPassword('')
+                  }}
+                >
+                  Редактировать
+                </button>
+
+                <button
+                  type="button"
+                  className="admin-danger-btn"
+                  onClick={() => {
+                    setDeletingAdmin(admin)
+                    setDeleteAdminCurrentPassword('')
+                  }}
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {filteredAdmins.length === 0 ? (
+            <div className="admin-empty-inline">Администраторы не найдены</div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+
   const renderUsers = () => (
     <div className="admin-panel">
       <div className="admin-card">
@@ -1161,7 +1650,7 @@ useEffect(() => {
                 <strong>{company.name}</strong>
                 <p>
                   ID: {company.id} • {company.is_active ? 'Активна' : 'Заблокирована'}
-                  {company.moderation_status ? ` • ${company.moderation_status}` : ''}
+                  {company.website ? ` • ${company.website}` : ''}
                 </p>
               </div>
 
@@ -1203,48 +1692,41 @@ useEffect(() => {
             className="admin-input admin-input--search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по имени, телефону или ID"
+            placeholder="Поиск по имени, телефону, email или ID"
           />
         </div>
 
         <div className="admin-stack">
-          {filteredApplicants.map((applicant) => {
-            const fullName =
-              [applicant.last_name, applicant.first_name, applicant.middle_name]
-                .filter(Boolean)
-                .join(' ') || `Соискатель #${applicant.id}`
-
-            return (
-              <div key={applicant.id} className="admin-list-row">
-                <div>
-                  <strong>{fullName}</strong>
-                  <p>
-                    ID: {applicant.id} • {applicant.phone || 'Телефон не указан'} •{' '}
-                    {applicant.is_active ? 'Активен' : 'Заблокирован'}
-                  </p>
-                </div>
-
-                <div className="admin-actions-row">
-                  <button
-                    type="button"
-                    className="admin-action-btn"
-                    onClick={() => openDetail({ kind: 'applicant', id: applicant.id })}
-                  >
-                    Подробнее
-                  </button>
-
-                  <button
-                    type="button"
-                    className={applicant.is_active ? 'admin-danger-btn' : 'admin-primary-btn'}
-                    onClick={() => toggleApplicantMutation.mutate(applicant)}
-                    disabled={toggleApplicantMutation.isPending}
-                  >
-                    {applicant.is_active ? 'Заблокировать' : 'Разблокировать'}
-                  </button>
-                </div>
+          {filteredApplicants.map((applicant) => (
+            <div key={applicant.id} className="admin-list-row">
+              <div>
+                <strong>{applicant.full_name}</strong>
+                <p>
+                  ID: {applicant.id} • {applicant.phone || 'Телефон не указан'} •{' '}
+                  {applicant.is_active ? 'Активен' : 'Заблокирован'}
+                </p>
               </div>
-            )
-          })}
+
+              <div className="admin-actions-row">
+                <button
+                  type="button"
+                  className="admin-action-btn"
+                  onClick={() => openDetail({ kind: 'applicant', id: applicant.id })}
+                >
+                  Подробнее
+                </button>
+
+                <button
+                  type="button"
+                  className={applicant.is_active ? 'admin-danger-btn' : 'admin-primary-btn'}
+                  onClick={() => toggleApplicantMutation.mutate(applicant)}
+                  disabled={toggleApplicantMutation.isPending}
+                >
+                  {applicant.is_active ? 'Заблокировать' : 'Разблокировать'}
+                </button>
+              </div>
+            </div>
+          ))}
 
           {filteredApplicants.length === 0 ? (
             <div className="admin-empty-inline">Нет соискателей</div>
@@ -1263,7 +1745,7 @@ useEffect(() => {
             className="admin-input admin-input--search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по названию, описанию или ID"
+            placeholder="Поиск по названию, компании, описанию или ID"
           />
         </div>
 
@@ -1273,8 +1755,8 @@ useEffect(() => {
               <div>
                 <strong>{vacancy.title}</strong>
                 <p>
-                  ID: {vacancy.id} • Компания #{vacancy.company_id ?? '—'} • Зарплата{' '}
-                  {formatSalary(vacancy.salary_min, vacancy.salary_max)}
+                  ID: {vacancy.id} • {vacancy.company_name || `Компания #${vacancy.company_id ?? '—'}`} •{' '}
+                  {formatSalary(vacancy.salary_min, vacancy.salary_max, vacancy.currency || 'BYN')}
                 </p>
               </div>
 
@@ -1337,10 +1819,10 @@ useEffect(() => {
               <div>
                 <strong>
                   {item.vacancy_title || `Вакансия #${item.vacancy_id}`} /{' '}
-                  {item.resume_title || `Резюме #${item.resume_id}`}
+                  {item.resume_profession || `Резюме #${item.resume_id}`}
                 </strong>
                 <p>
-                  {item.company_name || `Компания #${item.company_id ?? '—'}`} • Статус:{' '}
+                  {item.company_name || 'Компания не указана'} • Статус:{' '}
                   {statusLabels[item.status] || item.status}
                 </p>
               </div>
@@ -1391,61 +1873,49 @@ useEffect(() => {
     if (!detailTarget) return null
 
     const title =
-      detailTarget.kind === 'user'
-        ? `Пользователь #${detailTarget.id}`
-        : detailTarget.kind === 'company'
-          ? `Компания #${detailTarget.id}`
-          : detailTarget.kind === 'applicant'
-            ? `Соискатель #${detailTarget.id}`
-            : detailTarget.kind === 'vacancy'
-              ? `Вакансия #${detailTarget.id}`
-              : `Отклик ${detailTarget.vacancyId}/${detailTarget.resumeId}`
+      detailTarget.kind === 'admin'
+        ? `Администратор #${detailTarget.id}`
+        : detailTarget.kind === 'user'
+          ? `Пользователь #${detailTarget.id}`
+          : detailTarget.kind === 'company'
+            ? `Компания #${detailTarget.id}`
+            : detailTarget.kind === 'applicant'
+              ? `Соискатель #${detailTarget.id}`
+              : detailTarget.kind === 'vacancy'
+                ? `Вакансия #${detailTarget.id}`
+                : `Отклик ${detailTarget.vacancyId}/${detailTarget.resumeId}`
 
     return (
-      <div className="admin-modal" onClick={closeDetail}>
-        <div className="admin-modal__dialog" onClick={(e) => e.stopPropagation()}>
-          <div className="admin-modal__header">
-            <div>
-              <div className="admin-modal__eyebrow">Подробная информация</div>
-              <h3>{title}</h3>
-            </div>
-
-            <button type="button" className="admin-modal__close" onClick={closeDetail}>
-              ×
-            </button>
-          </div>
-
-          <div className="admin-modal__body">
-            {detailLoading ? (
-              <div className="admin-empty-inline">Загрузка...</div>
-            ) : !detailData ? (
-              <div className="admin-empty-inline">Не удалось загрузить данные.</div>
-            ) : (
-              <div className="admin-detail-grid admin-detail-grid--modal">
-                {Object.entries(detailData).map(([key, value]) => (
-                  <div
-                    key={key}
-                    className={`admin-detail-row ${
-                      Array.isArray(value) || (value && typeof value === 'object' && !Array.isArray(value))
-                        ? 'admin-detail-row--full'
-                        : ''
-                    }`}
-                  >
-                    <span>{prettifyKey(key)}</span>
-                    <div className="admin-detail-row__content">{renderDetailValue(key, value)}</div>
-                  </div>
-                ))}
+      <Modal title={title} subtitle="Подробная информация по выбранной сущности." onClose={closeDetail}>
+        {detailLoading ? (
+          <div className="admin-empty-inline">Загрузка...</div>
+        ) : !detailData ? (
+          <div className="admin-empty-inline">Не удалось загрузить данные.</div>
+        ) : (
+          <div className="admin-detail-grid admin-detail-grid--modal">
+            {Object.entries(detailData).map(([key, value]) => (
+              <div
+                key={key}
+                className={`admin-detail-row ${
+                  Array.isArray(value) || (value && typeof value === 'object' && !Array.isArray(value))
+                    ? 'admin-detail-row--full'
+                    : ''
+                }`}
+              >
+                <span>{prettifyKey(key)}</span>
+                <div className="admin-detail-row__content">{renderStructuredValue(key, value)}</div>
               </div>
-            )}
+            ))}
           </div>
-        </div>
-      </div>
+        )}
+      </Modal>
     )
   }
 
   const tabContent: Record<TabKey, JSX.Element> = {
     dashboard: renderDashboard(),
     catalogs: renderCatalogs(),
+    admins: renderAdmins(),
     users: renderUsers(),
     companies: renderCompanies(),
     applicants: renderApplicants(),
@@ -1483,6 +1953,17 @@ useEffect(() => {
             }}
           >
             Справочники
+          </button>
+
+          <button
+            type="button"
+            className={activeTab === 'admins' ? 'active' : ''}
+            onClick={() => {
+              setActiveTab('admins')
+              setSearch('')
+            }}
+          >
+            Администраторы
           </button>
 
           <button
@@ -1527,6 +2008,10 @@ useEffect(() => {
         </div>
 
         <div className="admin-sidebar__footer">
+          <div className="admin-sidebar__current-user">
+            <span>Текущий админ</span>
+            <strong>{authMeQuery.data?.email || '—'}</strong>
+          </div>
 
           <button
             type="button"
@@ -1547,6 +2032,7 @@ useEffect(() => {
           <h2>
             {activeTab === 'dashboard' && 'Обзор платформы'}
             {activeTab === 'catalogs' && 'Управление справочниками'}
+            {activeTab === 'admins' && 'Управление администраторами'}
             {activeTab === 'users' && 'Управление пользователями'}
             {activeTab === 'companies' && 'Управление компаниями'}
             {activeTab === 'applicants' && 'Управление соискателями'}
@@ -1560,6 +2046,164 @@ useEffect(() => {
       </main>
 
       {renderDetailModal()}
+
+      {isCreateAdminOpen ? (
+        <Modal
+          title="Создание администратора"
+          subtitle="Новый пользователь сразу получит роль администратора."
+          onClose={() => setIsCreateAdminOpen(false)}
+        >
+          <div className="admin-form-grid">
+            <label className="admin-field">
+              <span>Email</span>
+              <input
+                className="admin-input"
+                type="email"
+                value={newAdminEmail}
+                onChange={(e) => setNewAdminEmail(e.target.value)}
+                placeholder="admin@jobfinder.by"
+              />
+            </label>
+
+            <label className="admin-field">
+              <span>Пароль</span>
+              <input
+                className="admin-input"
+                type="password"
+                value={newAdminPassword}
+                onChange={(e) => setNewAdminPassword(e.target.value)}
+                placeholder="Минимум 8 символов"
+              />
+            </label>
+          </div>
+
+          <div className="admin-modal__footer">
+            <button type="button" className="admin-ghost-btn" onClick={() => setIsCreateAdminOpen(false)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="admin-primary-btn"
+              onClick={() => createAdminMutation.mutate()}
+              disabled={
+                createAdminMutation.isPending ||
+                !newAdminEmail.trim() ||
+                newAdminPassword.trim().length < 8
+              }
+            >
+              {createAdminMutation.isPending ? 'Создаём...' : 'Создать'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {editingAdmin ? (
+        <Modal
+          title={`Редактирование администратора #${editingAdmin.id}`}
+          subtitle="Для сохранения изменений требуется пароль текущего администратора."
+          onClose={() => setEditingAdmin(null)}
+        >
+          <div className="admin-form-grid">
+            <label className="admin-field">
+              <span>Email</span>
+              <input
+                className="admin-input"
+                type="email"
+                value={editAdminEmail}
+                onChange={(e) => setEditAdminEmail(e.target.value)}
+                placeholder="Введите email"
+              />
+            </label>
+
+            <label className="admin-field">
+              <span>Новый пароль</span>
+              <input
+                className="admin-input"
+                type="password"
+                value={editAdminPassword}
+                onChange={(e) => setEditAdminPassword(e.target.value)}
+                placeholder="Оставь пустым, если не меняешь"
+              />
+            </label>
+
+            <label className="admin-field admin-field--full">
+              <span>Пароль текущего администратора</span>
+              <input
+                className="admin-input"
+                type="password"
+                value={editAdminCurrentPassword}
+                onChange={(e) => setEditAdminCurrentPassword(e.target.value)}
+                placeholder="Подтверждение действия"
+              />
+            </label>
+
+            <label className="admin-checkbox admin-field--full">
+              <input
+                type="checkbox"
+                checked={editAdminIsActive}
+                onChange={(e) => setEditAdminIsActive(e.target.checked)}
+              />
+              <span>Администратор активен</span>
+            </label>
+          </div>
+
+          <div className="admin-modal__footer">
+            <button type="button" className="admin-ghost-btn" onClick={() => setEditingAdmin(null)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="admin-primary-btn"
+              onClick={() => updateAdminMutation.mutate(editingAdmin.id)}
+              disabled={
+                updateAdminMutation.isPending ||
+                !editAdminEmail.trim() ||
+                !editAdminCurrentPassword.trim() ||
+                (editAdminPassword.trim().length > 0 && editAdminPassword.trim().length < 8)
+              }
+            >
+              {updateAdminMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {deletingAdmin ? (
+        <Modal
+          title={`Удаление администратора #${deletingAdmin.id}`}
+          subtitle="Удаление необратимо. Для подтверждения введи пароль текущего администратора."
+          onClose={() => setDeletingAdmin(null)}
+        >
+          <div className="admin-warning-box">
+            Будет удалён администратор <strong>{deletingAdmin.email}</strong>.
+          </div>
+
+          <label className="admin-field">
+            <span>Пароль текущего администратора</span>
+            <input
+              className="admin-input"
+              type="password"
+              value={deleteAdminCurrentPassword}
+              onChange={(e) => setDeleteAdminCurrentPassword(e.target.value)}
+              placeholder="Подтверждение действия"
+            />
+          </label>
+
+          <div className="admin-modal__footer">
+            <button type="button" className="admin-ghost-btn" onClick={() => setDeletingAdmin(null)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="admin-danger-btn"
+              onClick={() => deleteAdminMutation.mutate(deletingAdmin.id)}
+              disabled={deleteAdminMutation.isPending || !deleteAdminCurrentPassword.trim()}
+            >
+              {deleteAdminMutation.isPending ? 'Удаляем...' : 'Удалить'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   )
 }

@@ -119,38 +119,50 @@ const formatSalary = (
 }
 
 type CustomSelectProps = {
+  selectKey: string
   label: string
   placeholder: string
   value?: number
   options: NamedEntity[]
+  openSelect: string | null
+  setOpenSelect: React.Dispatch<React.SetStateAction<string | null>>
   onChange: (value?: number) => void
 }
 
-function CustomSelect({ label, placeholder, value, options, onChange }: CustomSelectProps) {
-  const [open, setOpen] = useState(false)
+function CustomSelect({
+  selectKey,
+  label,
+  placeholder,
+  value,
+  options,
+  openSelect,
+  setOpenSelect,
+  onChange,
+}: CustomSelectProps) {
   const ref = useRef<HTMLDivElement | null>(null)
+  const open = openSelect === selectKey
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (!ref.current?.contains(event.target as Node)) {
-        setOpen(false)
+        setOpenSelect((prev) => (prev === selectKey ? null : prev))
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  }, [selectKey, setOpenSelect])
 
   const selected = options.find((item) => item.id === value)
 
   return (
-    <div className="custom-select" ref={ref}>
+    <div className={`custom-select ${open ? 'is-open' : ''}`} ref={ref}>
       <label className="filter-label">{label}</label>
 
       <button
         type="button"
         className={`custom-select__trigger ${open ? 'is-open' : ''}`}
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => setOpenSelect((prev) => (prev === selectKey ? null : selectKey))}
       >
         <span>{selected?.name || placeholder}</span>
         <span className="custom-select__arrow">▾</span>
@@ -163,7 +175,7 @@ function CustomSelect({ label, placeholder, value, options, onChange }: CustomSe
             className={`custom-select__option ${!value ? 'is-selected' : ''}`}
             onClick={() => {
               onChange(undefined)
-              setOpen(false)
+              setOpenSelect(null)
             }}
           >
             {placeholder}
@@ -176,7 +188,7 @@ function CustomSelect({ label, placeholder, value, options, onChange }: CustomSe
               className={`custom-select__option ${value === item.id ? 'is-selected' : ''}`}
               onClick={() => {
                 onChange(item.id)
-                setOpen(false)
+                setOpenSelect(null)
               }}
             >
               {item.name}
@@ -193,7 +205,7 @@ export const VacanciesPage = () => {
 
   const initialPage = Number(searchParams.get('page') || '1')
   const [page, setPage] = useState(Number.isNaN(initialPage) || initialPage < 1 ? 1 : initialPage)
-
+  const [openSelect, setOpenSelect] = useState<string | null>(null)
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
 
@@ -321,6 +333,7 @@ const totalSiteVacanciesQuery = useQuery({
     e.preventDefault()
     setPage(1)
     setSearch(searchInput.trim())
+    setOpenSelect(null)
   }
 
   const resetFilters = () => {
@@ -334,6 +347,7 @@ const totalSiteVacanciesQuery = useQuery({
     setSalaryFrom(undefined)
     setSalaryTo(undefined)
     setPage(1)
+    setOpenSelect(null)
   }
 
   const openVacancy = (id: number) => {
@@ -460,21 +474,26 @@ const totalSiteVacanciesQuery = useQuery({
                   </div>
 
                   <CustomSelect
+                    selectKey="city"
                     label="Город"
                     placeholder="Все города"
                     value={cityId}
                     options={citiesQuery.data || []}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
                     onChange={(value) => {
                       setPage(1)
                       setCityId(value)
                     }}
                   />
-
                   <CustomSelect
+                    selectKey="profession"
                     label="Профессия"
                     placeholder="Все профессии"
                     value={professionId}
                     options={professionsQuery.data || []}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
                     onChange={(value) => {
                       setPage(1)
                       setProfessionId(value)
@@ -482,10 +501,13 @@ const totalSiteVacanciesQuery = useQuery({
                   />
 
                   <CustomSelect
+                    selectKey="employmentType"
                     label="Тип занятости"
                     placeholder="Любой тип"
                     value={employmentTypeId}
                     options={employmentTypesQuery.data || []}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
                     onChange={(value) => {
                       setPage(1)
                       setEmploymentTypeId(value)
@@ -493,26 +515,33 @@ const totalSiteVacanciesQuery = useQuery({
                   />
 
                   <CustomSelect
+                    selectKey="experience"
                     label="Опыт"
                     placeholder="Любой опыт"
                     value={experienceId}
                     options={experiencesQuery.data || []}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
                     onChange={(value) => {
                       setPage(1)
                       setExperienceId(value)
                     }}
                   />
+                  
 
-                  <CustomSelect
-                    label="График работы"
-                    placeholder="Любой график"
-                    value={workScheduleId}
-                    options={workSchedulesQuery.data || []}
-                    onChange={(value) => {
-                      setPage(1)
-                      setWorkScheduleId(value)
-                    }}
-                  />
+                    <CustomSelect
+                      selectKey="workSchedule"
+                      label="График работы"
+                      placeholder="Любой график"
+                      value={workScheduleId}
+                      options={workSchedulesQuery.data || []}
+                      openSelect={openSelect}
+                      setOpenSelect={setOpenSelect}
+                      onChange={(value) => {
+                        setPage(1)
+                        setWorkScheduleId(value)
+                      }}
+                    />
 
                   <div className="filter-group">
                     <label className="filter-label">Зарплата</label>

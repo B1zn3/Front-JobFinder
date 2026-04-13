@@ -14,6 +14,8 @@ import { CompaniesPage } from '../pages/public/CompaniesPage'
 import { CreateResumePage } from '../pages/applicant/CreateResumePage'
 import { ResumeDetailsPage } from '../pages/applicant/ResumeDetailsPage'
 import { MyApplicationsPage } from '../pages/applications/MyApplicationsPage'
+import { ApplicantProfilePage } from '../pages/applicant/ApplicantProfilePage'
+
 
 const router = createBrowserRouter([
   {
@@ -34,6 +36,7 @@ const router = createBrowserRouter([
       { path: '/applicant/resume/:resumeId', element: <ResumeDetailsPage /> },
       { path: '/applicant/resume/:resumeId/edit', element: <ResumeDetailsPage /> },
       { path: '/responses', element: <MyApplicationsPage /> },
+      { path: '/applicant/profile', element: <ApplicantProfilePage /> },
 
       {
         element: <RequireAuth allowedRoles={['applicant']} />,
