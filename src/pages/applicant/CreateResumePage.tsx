@@ -1,3 +1,4 @@
+import type { AxiosError } from 'axios'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -80,7 +81,27 @@ type ComboOption = {
   label: string
 }
 
+type ApiValidationItem = {
+  loc?: Array<string | number>
+  msg?: string
+  type?: string
+}
+
+type ApiErrorResponse = {
+  detail?: string | { message?: string; error?: string } | ApiValidationItem[]
+  message?: string
+  error?: string
+}
+
 const STEPS: StepKey[] = ['profession', 'profile', 'education', 'skills', 'experience']
+
+const STEP_TITLES: Record<StepKey, string> = {
+  profession: 'Профессия',
+  profile: 'Профиль',
+  education: 'Образование',
+  skills: 'Навыки',
+  experience: 'Опыт',
+}
 
 const monthOptions: ComboOption[] = [
   { value: '01', label: 'Январь' },
@@ -97,33 +118,257 @@ const monthOptions: ComboOption[] = [
   { value: '12', label: 'Декабрь' },
 ]
 
-const yearOptions: ComboOption[] = Array.from({ length: 60 }, (_, index) => {
-  const year = String(new Date().getFullYear() - index)
+const currentYear = new Date().getFullYear()
+
+const birthYearOptions: ComboOption[] = Array.from({ length: 81 }, (_, index) => {
+  const year = String(currentYear - index)
   return { value: year, label: year }
 })
 
+const resumeYearOptions: ComboOption[] = Array.from({ length: 61 }, (_, index) => {
+  const year = String(currentYear - index)
+  return { value: year, label: year }
+})
+
+const phoneRegex = /^\+?[1-9]\d{8,14}$/
+
 const makeLocalId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+const normalizePhone = (value: string) => {
+  return value.replace(/[()\-\s]/g, '').trim()
+}
+
+const uniqueMessages = (messages: string[]) => Array.from(new Set(messages.filter(Boolean)))
+
+const translateApiErrorMessage = (message: string, status?: number) => {
+  const lower = message.toLowerCase()
+
+  if (
+    lower.includes('applicants_phone_key') ||
+    lower.includes('key (phone)') ||
+    lower.includes('phone already') ||
+    lower.includes('phone exists') ||
+    lower.includes('телефон уже') ||
+    lower.includes('номер уже')
+  ) {
+    return 'Телефон уже используется другим аккаунтом.'
+  }
+
+  if (
+    lower.includes('users_email_key') ||
+    lower.includes('key (email)') ||
+    lower.includes('email already') ||
+    lower.includes('email exists') ||
+    lower.includes('email уже') ||
+    lower.includes('почта уже')
+  ) {
+    return 'Email уже используется другим аккаунтом.'
+  }
+
+  if (
+    lower.includes('invalid profession') ||
+    lower.includes('profession_id') ||
+    lower.includes('профессия не найдена')
+  ) {
+    return 'Выберите профессию из списка.'
+  }
+
+  if (
+    lower.includes('institution') ||
+    lower.includes('учебное заведение')
+  ) {
+    return 'Выберите учебное заведение из списка.'
+  }
+
+  if (
+    lower.includes('city') ||
+    lower.includes('город')
+  ) {
+    return 'Выберите город из списка.'
+  }
+
+  if (
+    lower.includes('phone') &&
+    (lower.includes('invalid') || lower.includes('некоррект'))
+  ) {
+    return 'Введите телефон в формате +375291234567.'
+  }
+
+  if (lower.includes('field required')) {
+    return 'Заполните обязательные поля.'
+  }
+
+  if (lower.includes('not authenticated') || lower.includes('unauthorized')) {
+    return 'Сессия истекла. Войдите в аккаунт заново.'
+  }
+
+  if (lower.includes('forbidden') || lower.includes('доступ запрещ')) {
+    return 'Недостаточно прав для выполнения действия.'
+  }
+
+  if (status === 400) return message || 'Некорректные данные.'
+  if (status === 401) return 'Сессия истекла. Войдите в аккаунт заново.'
+  if (status === 403) return 'Недостаточно прав для выполнения действия.'
+  if (status === 404) return 'Данные не найдены.'
+  if (status === 409) return message || 'Такие данные уже используются.'
+  if (status === 422) return message || 'Проверьте корректность введённых данных.'
+  if (status === 429) return 'Слишком много попыток. Попробуйте позже.'
+  if (status && status >= 500) return 'Ошибка сервера. Попробуйте позже.'
+
+  if (message.length > 220) {
+    return 'Не удалось сохранить данные. Проверьте форму и попробуйте снова.'
+  }
+
+  return message || 'Не удалось сохранить данные.'
+}
+
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  const axiosError = error as AxiosError<ApiErrorResponse>
+  const status = axiosError.response?.status
+  const data = axiosError.response?.data
+
+  if (!axiosError.response) {
+    return 'Нет соединения с сервером. Проверьте интернет или попробуйте позже.'
+  }
+
+  if (Array.isArray(data?.detail)) {
+    const messages = uniqueMessages(
+      data.detail.map((item) => translateApiErrorMessage(item.msg || '', status)),
+    )
+
+    return messages[0] || fallback
+  }
+
+  if (typeof data?.detail === 'string') {
+    return translateApiErrorMessage(data.detail, status)
+  }
+
+  if (data?.detail && typeof data.detail === 'object' && !Array.isArray(data.detail)) {
+    const message = data.detail.message || data.detail.error
+    if (message) return translateApiErrorMessage(message, status)
+  }
+
+  if (data?.message) {
+    return translateApiErrorMessage(data.message, status)
+  }
+
+  if (data?.error) {
+    return translateApiErrorMessage(data.error, status)
+  }
+
+  switch (status) {
+    case 400:
+      return 'Некорректные данные. Проверьте форму.'
+    case 401:
+      return 'Сессия истекла. Войдите в аккаунт заново.'
+    case 403:
+      return 'Недостаточно прав для выполнения действия.'
+    case 404:
+      return 'Данные не найдены.'
+    case 409:
+      return 'Такие данные уже используются.'
+    case 422:
+      return 'Проверьте корректность введённых данных.'
+    case 429:
+      return 'Слишком много попыток. Попробуйте позже.'
+    default:
+      return status && status >= 500 ? 'Ошибка сервера. Попробуйте позже.' : fallback
+  }
+}
+
+const getDaysInMonth = (year: string, month: string) => {
+  if (!month) return 31
+
+  const parsedYear = year ? Number(year) : 2000
+  const parsedMonth = Number(month)
+
+  if (!Number.isFinite(parsedYear) || !Number.isFinite(parsedMonth)) return 31
+
+  return new Date(parsedYear, parsedMonth, 0).getDate()
+}
+
+const makeDayOptions = (year: string, month: string): ComboOption[] => {
+  const daysCount = getDaysInMonth(year, month)
+
+  return Array.from({ length: daysCount }, (_, index) => {
+    const day = String(index + 1).padStart(2, '0')
+    return { value: day, label: day }
+  })
+}
+
+const isRealDate = (day: string, month: string, year: string) => {
+  const parsedDay = Number(day)
+  const parsedMonth = Number(month)
+  const parsedYear = Number(year)
+
+  if (
+    !Number.isInteger(parsedDay) ||
+    !Number.isInteger(parsedMonth) ||
+    !Number.isInteger(parsedYear)
+  ) {
+    return false
+  }
+
+  const date = new Date(parsedYear, parsedMonth - 1, parsedDay)
+
+  return (
+    date.getFullYear() === parsedYear &&
+    date.getMonth() === parsedMonth - 1 &&
+    date.getDate() === parsedDay
+  )
+}
+
+const getStartOfDay = (date: Date) => {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+const validateBirthDate = (day: string, month: string, year: string) => {
+  if (!day || !month || !year) {
+    return 'Укажите дату рождения полностью.'
+  }
+
+  if (!isRealDate(day, month, year)) {
+    return 'Такой даты рождения не существует.'
+  }
+
+  const today = getStartOfDay(new Date())
+  const minDate = new Date(today)
+  minDate.setFullYear(today.getFullYear() - 80)
+
+  const birthDate = new Date(Number(year), Number(month) - 1, Number(day))
+
+  if (birthDate > today) {
+    return 'Дата рождения не может быть в будущем.'
+  }
+
+  if (birthDate < minDate) {
+    return 'Дата рождения должна быть в пределах последних 80 лет.'
+  }
+
+  return ''
+}
 
 const formatBirthDateParts = (birthDate?: string | null) => {
   if (!birthDate) {
     return { day: '', month: '', year: '' }
   }
 
-  const date = new Date(birthDate)
-  if (Number.isNaN(date.getTime())) {
+  const match = birthDate.match(/^(\d{4})-(\d{2})-(\d{2})/)
+
+  if (!match) {
     return { day: '', month: '', year: '' }
   }
 
   return {
-    day: String(date.getDate()).padStart(2, '0'),
-    month: String(date.getMonth() + 1).padStart(2, '0'),
-    year: String(date.getFullYear()),
+    year: match[1],
+    month: match[2],
+    day: match[3],
   }
 }
 
 const buildBirthDate = (day: string, month: string, year: string) => {
   if (!day || !month || !year) return null
-  return `${year}-${month}-${String(day).padStart(2, '0')}`
+  return `${year}-${month}-${day}`
 }
 
 const buildMonthYearDate = (month: string, year: string) => {
@@ -131,15 +376,33 @@ const buildMonthYearDate = (month: string, year: string) => {
   return `${year}-${month}-01`
 }
 
+const monthYearToNumber = (month: string, year: string) => {
+  if (!month || !year) return null
+
+  const parsed = Number(`${year}${month}`)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const isMonthYearInFuture = (month: string, year: string) => {
+  const value = monthYearToNumber(month, year)
+  if (!value) return false
+
+  const now = new Date()
+  const currentValue = Number(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`)
+
+  return value > currentValue
+}
+
 const fetchApplicantProfile = async (): Promise<ApplicantProfile | null> => {
   const { data } = await http.get('/applicants/me')
   return data || null
 }
 
-const fetchCatalog = async <T,>(catalogName: string): Promise<T[]> => {
+const fetchCatalog = async <T,>(catalogName: string, limit = 100): Promise<T[]> => {
   const { data } = await http.get(`/public/catalogs/${catalogName}`, {
-    params: { skip: 0, limit: 100 },
+    params: { skip: 0, limit },
   })
+
   return Array.isArray(data) ? data : []
 }
 
@@ -147,6 +410,7 @@ const fetchProfessions = async (): Promise<ProfessionItem[]> => {
   const { data } = await http.get('/public/professions', {
     params: { skip: 0, limit: 100 },
   })
+
   return Array.isArray(data) ? data : []
 }
 
@@ -202,7 +466,6 @@ type SearchComboProps = {
   onFocus: () => void
   onChange: (value: string) => void
   onSelect: (option: ComboOption) => void
-  onBlur?: () => void
 }
 
 const SearchCombo = ({
@@ -225,7 +488,7 @@ const SearchCombo = ({
         placeholder={placeholder}
         autoComplete="off"
         onFocus={onFocus}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
       />
 
       {isOpen && (
@@ -235,8 +498,10 @@ const SearchCombo = ({
               <button
                 key={String(option.value)}
                 type="button"
-                className={`combo__option ${activeValue === option.value ? 'is-active' : ''}`}
-                onMouseDown={(e) => e.preventDefault()}
+                className={`combo__option ${
+                  String(activeValue) === String(option.value) ? 'is-active' : ''
+                }`}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onSelect(option)}
               >
                 {option.label}
@@ -256,7 +521,9 @@ type SelectComboProps = {
   placeholder: string
   isOpen: boolean
   options: ComboOption[]
+  activeValue?: string | number | null
   disabled?: boolean
+  emptyText?: string
   onToggle: () => void
   onSelect: (option: ComboOption) => void
 }
@@ -266,7 +533,9 @@ const SelectCombo = ({
   placeholder,
   isOpen,
   options,
+  activeValue,
   disabled = false,
+  emptyText = 'Нет вариантов',
   onToggle,
   onSelect,
 }: SelectComboProps) => {
@@ -277,26 +546,34 @@ const SelectCombo = ({
         className={`combo-field ${isOpen ? 'is-open' : ''}`}
         onClick={onToggle}
         disabled={disabled}
+        aria-expanded={isOpen}
       >
         <span className={value ? 'combo-field__value' : 'combo-field__placeholder'}>
           {value || placeholder}
         </span>
+
         <ChevronIcon open={isOpen} />
       </button>
 
       {isOpen && !disabled && (
         <div className="combo__dropdown">
-          {options.map((option) => (
-            <button
-              key={String(option.value)}
-              type="button"
-              className={`combo__option ${value === option.label ? 'is-active' : ''}`}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onSelect(option)}
-            >
-              {option.label}
-            </button>
-          ))}
+          {options.length > 0 ? (
+            options.map((option) => (
+              <button
+                key={String(option.value)}
+                type="button"
+                className={`combo__option ${
+                  String(activeValue) === String(option.value) ? 'is-active' : ''
+                }`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onSelect(option)}
+              >
+                {option.label}
+              </button>
+            ))
+          ) : (
+            <div className="combo__empty">{emptyText}</div>
+          )}
         </div>
       )}
     </div>
@@ -307,8 +584,8 @@ export const CreateResumePage = () => {
   const navigate = useNavigate()
 
   const [currentStep, setCurrentStep] = useState(0)
-  const [createdResumeId, setCreatedResumeId] = useState<number | null>(null)
   const [saveError, setSaveError] = useState('')
+  const [saveSuccess, setSaveSuccess] = useState('')
   const [openCombo, setOpenCombo] = useState<string | null>(null)
   const [profileInitialized, setProfileInitialized] = useState(false)
 
@@ -322,7 +599,7 @@ export const CreateResumePage = () => {
   const [gender, setGender] = useState<'Мужской' | 'Женский' | ''>('')
 
   const [cityId, setCityId] = useState<number | null>(null)
-  const [citySearch, setCitySearch] = useState('')
+  const [cityName, setCityName] = useState('')
 
   const [phone, setPhone] = useState('')
   const [birthDay, setBirthDay] = useState('')
@@ -360,6 +637,7 @@ export const CreateResumePage = () => {
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement
+
       if (!target.closest('.combo')) {
         setOpenCombo(null)
       }
@@ -369,33 +647,54 @@ export const CreateResumePage = () => {
     return () => document.removeEventListener('click', handleDocumentClick)
   }, [])
 
+  useEffect(() => {
+    if (!birthDay) return
+
+    const maxDay = getDaysInMonth(birthYear, birthMonth)
+
+    if (Number(birthDay) > maxDay) {
+      setBirthDay('')
+    }
+  }, [birthDay, birthMonth, birthYear])
+
   const profileQuery = useQuery({
     queryKey: ['applicant-profile', 'create-resume'],
     queryFn: fetchApplicantProfile,
+    retry: false,
+    refetchOnWindowFocus: false,
   })
 
   const professionsQuery = useQuery({
     queryKey: ['public-professions', 'create-resume'],
     queryFn: fetchProfessions,
+    retry: false,
+    refetchOnWindowFocus: false,
   })
 
   const citiesQuery = useQuery({
     queryKey: ['public-cities', 'create-resume'],
     queryFn: () => fetchCatalog<CityItem>('cities'),
+    retry: false,
+    refetchOnWindowFocus: false,
   })
 
   const skillsQuery = useQuery({
     queryKey: ['public-skills', 'create-resume'],
     queryFn: () => fetchCatalog<SkillItem>('skills'),
+    retry: false,
+    refetchOnWindowFocus: false,
   })
 
   const educationInstitutionsQuery = useQuery({
     queryKey: ['public-education-institutions', 'create-resume'],
     queryFn: () => fetchCatalog<EducationInstitutionItem>('educational-institutions'),
+    retry: false,
+    refetchOnWindowFocus: false,
   })
 
   useEffect(() => {
     const profile = profileQuery.data
+
     if (!profile || profileInitialized) return
 
     const birth = formatBirthDateParts(profile.birth_date)
@@ -407,6 +706,8 @@ export const CreateResumePage = () => {
     setBirthDay(birth.day)
     setBirthMonth(birth.month)
     setBirthYear(birth.year)
+    setCityId(profile.city?.id ?? null)
+    setCityName(profile.city?.name || '')
 
     if (profile.gender === 'м' || profile.gender === 'Мужской') {
       setGender('Мужской')
@@ -414,8 +715,6 @@ export const CreateResumePage = () => {
       setGender('Женский')
     }
 
-    setCityId(profile.city?.id ?? null)
-    setCitySearch(profile.city?.name || '')
     setProfileInitialized(true)
   }, [profileQuery.data, profileInitialized])
 
@@ -462,23 +761,18 @@ export const CreateResumePage = () => {
       ? professions.filter((item) => item.name.toLowerCase().includes(value))
       : professions
 
-    return base.slice(0, 20).map((item) => ({
+    return base.slice(0, 30).map((item) => ({
       value: item.id,
       label: item.name,
     }))
   }, [professionSearch, professions])
 
-  const filteredCities: ComboOption[] = useMemo(() => {
-    const value = citySearch.trim().toLowerCase()
-    const base = value
-      ? cities.filter((item) => item.name.toLowerCase().includes(value))
-      : cities
-
-    return base.slice(0, 20).map((item) => ({
+  const cityOptions: ComboOption[] = useMemo(() => {
+    return cities.map((item) => ({
       value: item.id,
       label: item.name,
     }))
-  }, [citySearch, cities])
+  }, [cities])
 
   const filteredSkills: ComboOption[] = useMemo(() => {
     const value = skillSearch.trim().toLowerCase()
@@ -490,19 +784,45 @@ export const CreateResumePage = () => {
 
     return base
       .filter((item) => !selectedIds.has(item.id))
-      .slice(0, 25)
+      .slice(0, 30)
       .map((item) => ({
         value: item.id,
         label: item.name,
       }))
   }, [skillSearch, skills, selectedSkills])
 
+  const birthDayOptions = useMemo(() => {
+    return makeDayOptions(birthYear, birthMonth)
+  }, [birthMonth, birthYear])
+
   const progressPercent = Math.round(((currentStep + 1) / STEPS.length) * 100)
 
+  const isSaving =
+    profileMutation.isPending ||
+    createResumeMutation.isPending ||
+    addEducationMutation.isPending ||
+    addSkillsBatchMutation.isPending ||
+    addWorkExperienceMutation.isPending
+
+  const currentStepKey = STEPS[currentStep]
+
+  const selectedBirthMonthLabel =
+    monthOptions.find((item) => item.value === birthMonth)?.label || ''
+
+  const validatePhone = () => {
+    const normalized = normalizePhone(phone)
+
+    if (!normalized) return 'Укажите номер телефона.'
+    if (!phoneRegex.test(normalized)) return 'Введите телефон в формате +375291234567.'
+
+    return ''
+  }
+
   const validateProfessionStep = () => {
-    if (!selectedProfessionId) {
-      return 'Выберите профессию.'
+    if (!selectedProfessionId || !selectedProfessionName.trim()) {
+      return 'Выберите профессию из списка.'
     }
+
     return ''
   }
 
@@ -511,22 +831,12 @@ export const CreateResumePage = () => {
     if (!firstName.trim()) return 'Укажите имя.'
     if (!gender) return 'Укажите пол.'
     if (!cityId) return 'Выберите город проживания из списка.'
-    if (!phone.trim()) return 'Укажите номер телефона.'
 
-    const day = Number(birthDay)
-    const year = Number(birthYear)
+    const phoneError = validatePhone()
+    if (phoneError) return phoneError
 
-    if (!birthDay || !birthMonth || !birthYear) {
-      return 'Укажите дату рождения.'
-    }
-
-    if (!Number.isInteger(day) || day < 1 || day > 31) {
-      return 'Некорректный день рождения.'
-    }
-
-    if (!Number.isInteger(year) || year < 1950 || year > new Date().getFullYear()) {
-      return 'Некорректный год рождения.'
-    }
+    const birthError = validateBirthDate(birthDay, birthMonth, birthYear)
+    if (birthError) return birthError
 
     return ''
   }
@@ -538,7 +848,7 @@ export const CreateResumePage = () => {
         item.start_month ||
         item.start_year ||
         item.end_month ||
-        item.end_year
+        item.end_year,
     )
 
     if (!hasAnyFilled) return ''
@@ -565,10 +875,18 @@ export const CreateResumePage = () => {
         return 'Укажите дату окончания обучения.'
       }
 
-      const start = Number(`${item.start_year}${item.start_month}`)
-      const end = Number(`${item.end_year}${item.end_month}`)
+      if (isMonthYearInFuture(item.start_month, item.start_year)) {
+        return 'Дата начала обучения не может быть в будущем.'
+      }
 
-      if (start > end) {
+      if (isMonthYearInFuture(item.end_month, item.end_year)) {
+        return 'Дата окончания обучения не может быть в будущем.'
+      }
+
+      const start = monthYearToNumber(item.start_month, item.start_year)
+      const end = monthYearToNumber(item.end_month, item.end_year)
+
+      if (start && end && start > end) {
         return 'Дата окончания обучения не может быть раньше даты начала.'
       }
     }
@@ -580,6 +898,7 @@ export const CreateResumePage = () => {
     if (selectedSkills.length === 0) {
       return 'Добавьте хотя бы один навык.'
     }
+
     return ''
   }
 
@@ -592,7 +911,7 @@ export const CreateResumePage = () => {
         item.start_year ||
         item.end_month ||
         item.end_year ||
-        item.description.trim()
+        item.description.trim(),
     )
 
     if (!hasAnyFilled) return ''
@@ -621,8 +940,12 @@ export const CreateResumePage = () => {
         return 'Укажите дату начала работы.'
       }
 
+      if (isMonthYearInFuture(item.start_month, item.start_year)) {
+        return 'Дата начала работы не может быть в будущем.'
+      }
+
       if (!item.is_current && (!item.end_month || !item.end_year)) {
-        return 'Укажите дату окончания работы или отметьте "Работаю сейчас".'
+        return 'Укажите дату окончания работы или отметьте “Работаю сейчас”.'
       }
 
       if (!item.description.trim()) {
@@ -634,16 +957,137 @@ export const CreateResumePage = () => {
       }
 
       if (!item.is_current) {
-        const start = Number(`${item.start_year}${item.start_month}`)
-        const end = Number(`${item.end_year}${item.end_month}`)
+        if (isMonthYearInFuture(item.end_month, item.end_year)) {
+          return 'Дата окончания работы не может быть в будущем.'
+        }
 
-        if (start > end) {
+        const start = monthYearToNumber(item.start_month, item.start_year)
+        const end = monthYearToNumber(item.end_month, item.end_year)
+
+        if (start && end && start > end) {
           return 'Дата окончания работы не может быть раньше даты начала.'
         }
       }
     }
 
     return ''
+  }
+
+  const validateStep = (step: StepKey) => {
+    if (step === 'profession') return validateProfessionStep()
+    if (step === 'profile') return validateProfileStep()
+    if (step === 'education') return validateEducationStep()
+    if (step === 'skills') return validateSkillsStep()
+    if (step === 'experience') return validateExperienceStep()
+
+    return ''
+  }
+
+  const validateAllSteps = () => {
+    for (const step of STEPS) {
+      const error = validateStep(step)
+
+      if (error) {
+        return error
+      }
+    }
+
+    return ''
+  }
+
+  const getValidEducations = () => {
+    return educations.filter(
+      (item) =>
+        item.institution_id &&
+        item.start_month &&
+        item.start_year &&
+        item.end_month &&
+        item.end_year,
+    )
+  }
+
+  const getValidExperiences = () => {
+    return experiences.filter(
+      (item) =>
+        item.company_name.trim() &&
+        item.position.trim() &&
+        item.start_month &&
+        item.start_year &&
+        item.description.trim(),
+    )
+  }
+
+  const finishResumeCreation = async () => {
+    const error = validateAllSteps()
+
+    if (error) {
+      setSaveError(error)
+      return
+    }
+
+    setSaveError('')
+    setSaveSuccess('')
+
+    try {
+      await profileMutation.mutateAsync({
+        last_name: lastName.trim(),
+        first_name: firstName.trim(),
+        middle_name: middleName.trim() || null,
+        gender: gender === 'Мужской' ? 'м' : 'ж',
+        city_id: cityId,
+        city_name: cityName,
+        phone: normalizePhone(phone),
+        birth_date: buildBirthDate(birthDay, birthMonth, birthYear),
+      })
+
+      const createdResume = await createResumeMutation.mutateAsync({
+        profession_id: selectedProfessionId,
+      })
+
+      const validEducations = getValidEducations()
+
+      for (const education of validEducations) {
+        await addEducationMutation.mutateAsync({
+          institution_id: education.institution_id,
+          start_date: buildMonthYearDate(education.start_month, education.start_year),
+          end_date: buildMonthYearDate(education.end_month, education.end_year),
+        })
+      }
+
+      await addSkillsBatchMutation.mutateAsync({
+        resumeId: createdResume.id,
+        payload: {
+          skills: selectedSkills.map((item) => item.name),
+        },
+      })
+
+      const validExperiences = getValidExperiences()
+
+      for (const experience of validExperiences) {
+        await addWorkExperienceMutation.mutateAsync({
+          resumeId: createdResume.id,
+          payload: {
+            company_name: experience.company_name.trim(),
+            position: experience.position.trim(),
+            start_date: buildMonthYearDate(experience.start_month, experience.start_year),
+            end_date: experience.is_current
+              ? null
+              : buildMonthYearDate(experience.end_month, experience.end_year),
+            description: experience.description.trim(),
+          },
+        })
+      }
+
+      setSaveSuccess('Резюме успешно создано.')
+      navigate(`/applicant/resume/${createdResume.id}`)
+    } catch (requestError) {
+      setSaveError(
+        getApiErrorMessage(
+          requestError,
+          'Не удалось сохранить резюме. Проверьте данные и попробуйте снова.',
+        ),
+      )
+    }
   }
 
   const goBack = () => {
@@ -653,145 +1097,27 @@ export const CreateResumePage = () => {
     }
 
     setSaveError('')
+    setSaveSuccess('')
     setCurrentStep((prev) => prev - 1)
   }
 
   const goNext = async () => {
     setSaveError('')
+    setSaveSuccess('')
 
-    try {
-      if (STEPS[currentStep] === 'profession') {
-        const error = validateProfessionStep()
-        if (error) {
-          setSaveError(error)
-          return
-        }
+    const error = validateStep(currentStepKey)
 
-        if (!createdResumeId) {
-          const created = await createResumeMutation.mutateAsync({
-            profession_id: selectedProfessionId,
-          })
-          setCreatedResumeId(created.id)
-        }
-
-        setCurrentStep((prev) => prev + 1)
-        return
-      }
-
-      if (STEPS[currentStep] === 'profile') {
-        const error = validateProfileStep()
-        if (error) {
-          setSaveError(error)
-          return
-        }
-
-        await profileMutation.mutateAsync({
-          last_name: lastName.trim(),
-          first_name: firstName.trim(),
-          middle_name: middleName.trim() || null,
-          gender: gender === 'Мужской' ? 'м' : 'ж',
-          city_id: cityId,
-          phone: phone.trim(),
-          birth_date: buildBirthDate(birthDay, birthMonth, birthYear),
-        })
-
-        setCurrentStep((prev) => prev + 1)
-        return
-      }
-
-      if (STEPS[currentStep] === 'education') {
-        const error = validateEducationStep()
-        if (error) {
-          setSaveError(error)
-          return
-        }
-
-        const validEducations = educations.filter(
-          (item) =>
-            item.institution_id &&
-            item.start_month &&
-            item.start_year &&
-            item.end_month &&
-            item.end_year
-        )
-
-        for (const education of validEducations) {
-          await addEducationMutation.mutateAsync({
-            institution_id: education.institution_id,
-            start_date: buildMonthYearDate(education.start_month, education.start_year),
-            end_date: buildMonthYearDate(education.end_month, education.end_year),
-          })
-        }
-
-        setCurrentStep((prev) => prev + 1)
-        return
-      }
-
-      if (STEPS[currentStep] === 'skills') {
-        const error = validateSkillsStep()
-        if (error) {
-          setSaveError(error)
-          return
-        }
-
-        if (!createdResumeId) {
-          setSaveError('Сначала нужно создать резюме.')
-          return
-        }
-
-        await addSkillsBatchMutation.mutateAsync({
-          resumeId: createdResumeId,
-          payload: {
-            skills: selectedSkills.map((item) => item.name),
-          },
-        })
-
-        setCurrentStep((prev) => prev + 1)
-        return
-      }
-
-      if (STEPS[currentStep] === 'experience') {
-        const error = validateExperienceStep()
-        if (error) {
-          setSaveError(error)
-          return
-        }
-
-        if (!createdResumeId) {
-          setSaveError('Сначала нужно создать резюме.')
-          return
-        }
-
-        const validExperiences = experiences.filter(
-          (item) =>
-            item.company_name.trim() &&
-            item.position.trim() &&
-            item.start_month &&
-            item.start_year &&
-            item.description.trim()
-        )
-
-        for (const experience of validExperiences) {
-          await addWorkExperienceMutation.mutateAsync({
-            resumeId: createdResumeId,
-            payload: {
-              resume_id: createdResumeId,
-              company_name: experience.company_name.trim(),
-              position: experience.position.trim(),
-              start_date: buildMonthYearDate(experience.start_month, experience.start_year),
-              end_date: experience.is_current
-                ? null
-                : buildMonthYearDate(experience.end_month, experience.end_year),
-              description: experience.description.trim(),
-            },
-          })
-        }
-
-        navigate(`/applicant/resume/${createdResumeId}`)
-      }
-    } catch {
-      setSaveError('Не удалось сохранить данные. Проверьте соответствие payload вашему backend.')
+    if (error) {
+      setSaveError(error)
+      return
     }
+
+    if (currentStep < STEPS.length - 1) {
+      setCurrentStep((prev) => prev + 1)
+      return
+    }
+
+    await finishResumeCreation()
   }
 
   const addEducationRow = () => {
@@ -814,7 +1140,7 @@ export const CreateResumePage = () => {
 
   const updateEducationRow = (localId: string, patch: Partial<EducationDraft>) => {
     setEducations((prev) =>
-      prev.map((item) => (item.localId === localId ? { ...item, ...patch } : item))
+      prev.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
     )
   }
 
@@ -841,12 +1167,13 @@ export const CreateResumePage = () => {
 
   const updateExperienceRow = (localId: string, patch: Partial<WorkExperienceDraft>) => {
     setExperiences((prev) =>
-      prev.map((item) => (item.localId === localId ? { ...item, ...patch } : item))
+      prev.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
     )
   }
 
   const addSkill = (skillId: number) => {
     const skill = skills.find((item) => item.id === skillId)
+
     if (!skill) return
 
     setSelectedSkills((prev) => {
@@ -869,20 +1196,53 @@ export const CreateResumePage = () => {
       <main className="create-resume-page__main">
         <div className="container create-resume-page__container">
           <section className="create-resume-card">
-            <div className="create-resume-card__progress-label">
-              Шаг {currentStep + 1} из {STEPS.length} · {progressPercent}%
+            <div className="create-resume-card__top">
+              <div>
+                <div className="create-resume-card__progress-label">
+                  Шаг {currentStep + 1} из {STEPS.length} · {progressPercent}%
+                </div>
+
+                <div className="create-resume-card__step-name">
+                  {STEP_TITLES[currentStepKey]}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="create-resume-card__cancel"
+                onClick={() => navigate('/applicant')}
+              >
+                Выйти
+              </button>
             </div>
 
-            {STEPS[currentStep] === 'profession' && (
+            {profileQuery.isError ||
+            professionsQuery.isError ||
+            citiesQuery.isError ||
+            skillsQuery.isError ||
+            educationInstitutionsQuery.isError ? (
+              <div className="form-error">
+                Не удалось загрузить часть справочников. Обновите страницу.
+              </div>
+            ) : null}
+
+            {currentStepKey === 'profession' && (
               <>
-                <h1 className="create-resume-card__title">Выберите или укажите профессию</h1>
+                <h1 className="create-resume-card__title">Выберите профессию</h1>
+
+                <p className="create-resume-card__subtitle">
+                  Начните вводить название и выберите вариант из списка.
+                </p>
 
                 <SearchCombo
                   value={professionSearch}
-                  placeholder="Поиск профессии"
+                  placeholder="Например: Frontend-разработчик"
                   isOpen={openCombo === 'profession'}
                   options={filteredProfessions}
                   activeValue={selectedProfessionId}
+                  emptyText={
+                    professionsQuery.isLoading ? 'Загружаем профессии...' : 'Профессия не найдена'
+                  }
                   onFocus={() => setOpenCombo('profession')}
                   onChange={(value) => {
                     setProfessionSearch(value)
@@ -895,33 +1255,53 @@ export const CreateResumePage = () => {
                     setSelectedProfessionName(option.label)
                     setProfessionSearch(option.label)
                     setOpenCombo(null)
+                    setSaveError('')
                   }}
                 />
 
-                {selectedProfessionName && (
+                {selectedProfessionName ? (
                   <div className="picked-value">Выбрано: {selectedProfessionName}</div>
-                )}
+                ) : null}
               </>
             )}
 
-            {STEPS[currentStep] === 'profile' && (
+            {currentStepKey === 'profile' && (
               <>
-                <h1 className="create-resume-card__title">Заполните основную информацию</h1>
+                <h1 className="create-resume-card__title">Основная информация</h1>
 
-                <div className="form-grid">
+                <p className="create-resume-card__subtitle">
+                  Эти данные попадут в профиль и будут использоваться в резюме.
+                </p>
+
+                <div className="form-grid form-grid--two">
                   <label className="field">
                     <span>Фамилия</span>
-                    <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+
+                    <input
+                      value={lastName}
+                      onChange={(event) => setLastName(event.target.value)}
+                      placeholder="Например: Иванов"
+                    />
                   </label>
 
                   <label className="field">
                     <span>Имя</span>
-                    <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+
+                    <input
+                      value={firstName}
+                      onChange={(event) => setFirstName(event.target.value)}
+                      placeholder="Например: Иван"
+                    />
                   </label>
 
-                  <label className="field">
+                  <label className="field field--full">
                     <span>Отчество</span>
-                    <input value={middleName} onChange={(e) => setMiddleName(e.target.value)} />
+
+                    <input
+                      value={middleName}
+                      onChange={(event) => setMiddleName(event.target.value)}
+                      placeholder="Например: Иванович"
+                    />
                   </label>
                 </div>
 
@@ -936,6 +1316,7 @@ export const CreateResumePage = () => {
                     >
                       Мужской
                     </button>
+
                     <button
                       type="button"
                       className={gender === 'Женский' ? 'is-active' : ''}
@@ -947,35 +1328,42 @@ export const CreateResumePage = () => {
                 </div>
 
                 <div className="section-block">
-                  <span className="section-block__label">Контактная информация</span>
+                  <span className="section-block__label">Контакты</span>
 
-                  <div className="form-grid">
+                  <div className="form-grid form-grid--two">
                     <label className="field">
                       <span>Город проживания</span>
 
-                      <SearchCombo
-                        value={citySearch}
+                      <SelectCombo
+                        value={cityName}
                         placeholder="Выберите город"
                         isOpen={openCombo === 'city'}
-                        options={filteredCities}
+                        options={cityOptions}
                         activeValue={cityId}
-                        onFocus={() => setOpenCombo('city')}
-                        onChange={(value) => {
-                          setCitySearch(value)
-                          setCityId(null)
-                          setOpenCombo('city')
-                        }}
+                        emptyText={citiesQuery.isLoading ? 'Загружаем города...' : 'Города не найдены'}
+                        onToggle={() =>
+                          setOpenCombo((prev) => (prev === 'city' ? null : 'city'))
+                        }
                         onSelect={(option) => {
                           setCityId(Number(option.value))
-                          setCitySearch(option.label)
+                          setCityName(option.label)
                           setOpenCombo(null)
+                          setSaveError('')
                         }}
                       />
                     </label>
 
                     <label className="field">
                       <span>Номер телефона</span>
-                      <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+
+                      <input
+                        type="tel"
+                        inputMode="tel"
+                        value={phone}
+                        onChange={(event) => setPhone(event.target.value)}
+                        onBlur={() => setPhone(normalizePhone(phone))}
+                        placeholder="+375 (29) 123-45-67"
+                      />
                     </label>
                   </div>
                 </div>
@@ -986,39 +1374,60 @@ export const CreateResumePage = () => {
                   <div className="date-grid date-grid--three">
                     <label className="field">
                       <span>День</span>
-                      <input value={birthDay} onChange={(e) => setBirthDay(e.target.value)} />
+
+                      <SelectCombo
+                        value={birthDay}
+                        placeholder="День"
+                        isOpen={openCombo === 'birthDay'}
+                        options={birthDayOptions}
+                        activeValue={birthDay}
+                        onToggle={() =>
+                          setOpenCombo((prev) => (prev === 'birthDay' ? null : 'birthDay'))
+                        }
+                        onSelect={(option) => {
+                          setBirthDay(String(option.value))
+                          setOpenCombo(null)
+                          setSaveError('')
+                        }}
+                      />
                     </label>
 
                     <label className="field">
                       <span>Месяц</span>
+
                       <SelectCombo
-                        value={monthOptions.find((item) => item.value === birthMonth)?.label || ''}
+                        value={selectedBirthMonthLabel}
                         placeholder="Месяц"
                         isOpen={openCombo === 'birthMonth'}
                         options={monthOptions}
+                        activeValue={birthMonth}
                         onToggle={() =>
                           setOpenCombo((prev) => (prev === 'birthMonth' ? null : 'birthMonth'))
                         }
                         onSelect={(option) => {
                           setBirthMonth(String(option.value))
                           setOpenCombo(null)
+                          setSaveError('')
                         }}
                       />
                     </label>
 
                     <label className="field">
                       <span>Год</span>
+
                       <SelectCombo
                         value={birthYear}
                         placeholder="Год"
                         isOpen={openCombo === 'birthYear'}
-                        options={yearOptions}
+                        options={birthYearOptions}
+                        activeValue={birthYear}
                         onToggle={() =>
                           setOpenCombo((prev) => (prev === 'birthYear' ? null : 'birthYear'))
                         }
                         onSelect={(option) => {
                           setBirthYear(String(option.value))
                           setOpenCombo(null)
+                          setSaveError('')
                         }}
                       />
                     </label>
@@ -1027,11 +1436,13 @@ export const CreateResumePage = () => {
               </>
             )}
 
-            {STEPS[currentStep] === 'education' && (
+            {currentStepKey === 'education' && (
               <>
-                <h1 className="create-resume-card__title">
-                  Какое учебное заведение включить в резюме?
-                </h1>
+                <h1 className="create-resume-card__title">Образование</h1>
+
+                <p className="create-resume-card__subtitle">
+                  Этот шаг можно оставить пустым, если образование не нужно указывать.
+                </p>
 
                 {educations.map((education, index) => {
                   const educationSearch = education.institution_name.trim().toLowerCase()
@@ -1039,11 +1450,11 @@ export const CreateResumePage = () => {
                   const educationOptions: ComboOption[] = (
                     educationSearch
                       ? educationInstitutions.filter((item) =>
-                          item.name.toLowerCase().includes(educationSearch)
+                          item.name.toLowerCase().includes(educationSearch),
                         )
                       : educationInstitutions
                   )
-                    .slice(0, 20)
+                    .slice(0, 30)
                     .map((item) => ({
                       value: item.id,
                       label: item.name,
@@ -1060,7 +1471,7 @@ export const CreateResumePage = () => {
                       <div className="education-card__head">
                         <h3>Образование {index + 1}</h3>
 
-                        {educations.length > 1 && (
+                        {educations.length > 1 ? (
                           <button
                             type="button"
                             className="link-danger"
@@ -1068,7 +1479,7 @@ export const CreateResumePage = () => {
                           >
                             Удалить
                           </button>
-                        )}
+                        ) : null}
                       </div>
 
                       <label className="field">
@@ -1076,10 +1487,15 @@ export const CreateResumePage = () => {
 
                         <SearchCombo
                           value={education.institution_name}
-                          placeholder="Поиск учебного заведения"
+                          placeholder="Начните вводить название"
                           isOpen={openCombo === `education-${education.localId}`}
                           options={educationOptions}
                           activeValue={education.institution_id}
+                          emptyText={
+                            educationInstitutionsQuery.isLoading
+                              ? 'Загружаем учебные заведения...'
+                              : 'Учебное заведение не найдено'
+                          }
                           onFocus={() => setOpenCombo(`education-${education.localId}`)}
                           onChange={(value) => {
                             updateEducationRow(education.localId, {
@@ -1094,6 +1510,7 @@ export const CreateResumePage = () => {
                               institution_name: option.label,
                             })
                             setOpenCombo(null)
+                            setSaveError('')
                           }}
                         />
                       </label>
@@ -1105,16 +1522,18 @@ export const CreateResumePage = () => {
                           <div className="date-grid date-grid--two">
                             <label className="field">
                               <span>Месяц</span>
+
                               <SelectCombo
                                 value={startMonthLabel}
                                 placeholder="Месяц"
                                 isOpen={openCombo === `education-start-month-${education.localId}`}
                                 options={monthOptions}
+                                activeValue={education.start_month}
                                 onToggle={() =>
                                   setOpenCombo((prev) =>
                                     prev === `education-start-month-${education.localId}`
                                       ? null
-                                      : `education-start-month-${education.localId}`
+                                      : `education-start-month-${education.localId}`,
                                   )
                                 }
                                 onSelect={(option) => {
@@ -1122,22 +1541,25 @@ export const CreateResumePage = () => {
                                     start_month: String(option.value),
                                   })
                                   setOpenCombo(null)
+                                  setSaveError('')
                                 }}
                               />
                             </label>
 
                             <label className="field">
                               <span>Год</span>
+
                               <SelectCombo
                                 value={education.start_year}
                                 placeholder="Год"
                                 isOpen={openCombo === `education-start-year-${education.localId}`}
-                                options={yearOptions}
+                                options={resumeYearOptions}
+                                activeValue={education.start_year}
                                 onToggle={() =>
                                   setOpenCombo((prev) =>
                                     prev === `education-start-year-${education.localId}`
                                       ? null
-                                      : `education-start-year-${education.localId}`
+                                      : `education-start-year-${education.localId}`,
                                   )
                                 }
                                 onSelect={(option) => {
@@ -1145,6 +1567,7 @@ export const CreateResumePage = () => {
                                     start_year: String(option.value),
                                   })
                                   setOpenCombo(null)
+                                  setSaveError('')
                                 }}
                               />
                             </label>
@@ -1157,16 +1580,18 @@ export const CreateResumePage = () => {
                           <div className="date-grid date-grid--two">
                             <label className="field">
                               <span>Месяц</span>
+
                               <SelectCombo
                                 value={endMonthLabel}
                                 placeholder="Месяц"
                                 isOpen={openCombo === `education-end-month-${education.localId}`}
                                 options={monthOptions}
+                                activeValue={education.end_month}
                                 onToggle={() =>
                                   setOpenCombo((prev) =>
                                     prev === `education-end-month-${education.localId}`
                                       ? null
-                                      : `education-end-month-${education.localId}`
+                                      : `education-end-month-${education.localId}`,
                                   )
                                 }
                                 onSelect={(option) => {
@@ -1174,22 +1599,25 @@ export const CreateResumePage = () => {
                                     end_month: String(option.value),
                                   })
                                   setOpenCombo(null)
+                                  setSaveError('')
                                 }}
                               />
                             </label>
 
                             <label className="field">
                               <span>Год</span>
+
                               <SelectCombo
                                 value={education.end_year}
                                 placeholder="Год"
                                 isOpen={openCombo === `education-end-year-${education.localId}`}
-                                options={yearOptions}
+                                options={resumeYearOptions}
+                                activeValue={education.end_year}
                                 onToggle={() =>
                                   setOpenCombo((prev) =>
                                     prev === `education-end-year-${education.localId}`
                                       ? null
-                                      : `education-end-year-${education.localId}`
+                                      : `education-end-year-${education.localId}`,
                                   )
                                 }
                                 onSelect={(option) => {
@@ -1197,6 +1625,7 @@ export const CreateResumePage = () => {
                                     end_year: String(option.value),
                                   })
                                   setOpenCombo(null)
+                                  setSaveError('')
                                 }}
                               />
                             </label>
@@ -1213,29 +1642,33 @@ export const CreateResumePage = () => {
               </>
             )}
 
-            {STEPS[currentStep] === 'skills' && (
+            {currentStepKey === 'skills' && (
               <>
-                <h1 className="create-resume-card__title">Какими навыками владеете?</h1>
+                <h1 className="create-resume-card__title">Навыки</h1>
+
+                <p className="create-resume-card__subtitle">
+                  Выберите навыки из списка. Минимум один навык обязателен.
+                </p>
 
                 <label className="field">
                   <span>Навыки</span>
 
                   <SearchCombo
                     value={skillSearch}
-                    placeholder="Поиск навыков"
+                    placeholder="Например: React"
                     isOpen={openCombo === 'skills'}
                     options={filteredSkills}
+                    emptyText={skillsQuery.isLoading ? 'Загружаем навыки...' : 'Навыки не найдены'}
                     onFocus={() => setOpenCombo('skills')}
                     onChange={(value) => {
                       setSkillSearch(value)
                       setOpenCombo('skills')
                     }}
                     onSelect={(option) => addSkill(Number(option.value))}
-                    emptyText="Навыки не найдены"
                   />
                 </label>
 
-                {selectedSkills.length > 0 && (
+                {selectedSkills.length > 0 ? (
                   <div className="chip-list chip-list--selected">
                     {selectedSkills.map((item) => (
                       <button
@@ -1248,13 +1681,13 @@ export const CreateResumePage = () => {
                       </button>
                     ))}
                   </div>
-                )}
+                ) : null}
 
                 <div className="section-block">
                   <span className="section-block__label">Рекомендованные навыки</span>
 
                   <div className="chip-list">
-                    {filteredSkills.map((item) => (
+                    {filteredSkills.slice(0, 18).map((item) => (
                       <button
                         key={String(item.value)}
                         type="button"
@@ -1269,9 +1702,14 @@ export const CreateResumePage = () => {
               </>
             )}
 
-            {STEPS[currentStep] === 'experience' && (
+            {currentStepKey === 'experience' && (
               <>
-                <h1 className="create-resume-card__title">Расскажите об опыте работы</h1>
+                <h1 className="create-resume-card__title">Опыт работы</h1>
+
+                <p className="create-resume-card__subtitle">
+                  Можно пропустить, если опыта пока нет. Если начали заполнять блок, заполните его
+                  полностью.
+                </p>
 
                 {experiences.map((experience, index) => {
                   const startMonthLabel =
@@ -1285,7 +1723,7 @@ export const CreateResumePage = () => {
                       <div className="experience-card__head">
                         <h3>Опыт работы {index + 1}</h3>
 
-                        {experiences.length > 1 && (
+                        {experiences.length > 1 ? (
                           <button
                             type="button"
                             className="link-danger"
@@ -1293,34 +1731,38 @@ export const CreateResumePage = () => {
                           >
                             Удалить
                           </button>
-                        )}
+                        ) : null}
                       </div>
 
-                      <label className="field">
-                        <span>Компания</span>
-                        <input
-                          placeholder="Компания"
-                          value={experience.company_name}
-                          onChange={(e) =>
-                            updateExperienceRow(experience.localId, {
-                              company_name: e.target.value,
-                            })
-                          }
-                        />
-                      </label>
+                      <div className="form-grid form-grid--two">
+                        <label className="field">
+                          <span>Компания</span>
 
-                      <label className="field">
-                        <span>Должность или профессия</span>
-                        <input
-                          placeholder="Должность или профессия"
-                          value={experience.position}
-                          onChange={(e) =>
-                            updateExperienceRow(experience.localId, {
-                              position: e.target.value,
-                            })
-                          }
-                        />
-                      </label>
+                          <input
+                            placeholder="Например: БелСофт"
+                            value={experience.company_name}
+                            onChange={(event) =>
+                              updateExperienceRow(experience.localId, {
+                                company_name: event.target.value,
+                              })
+                            }
+                          />
+                        </label>
+
+                        <label className="field">
+                          <span>Должность</span>
+
+                          <input
+                            placeholder="Например: Frontend-разработчик"
+                            value={experience.position}
+                            onChange={(event) =>
+                              updateExperienceRow(experience.localId, {
+                                position: event.target.value,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
 
                       <div className="experience-card__dates">
                         <div className="experience-card__date-group">
@@ -1329,16 +1771,18 @@ export const CreateResumePage = () => {
                           <div className="date-grid date-grid--two">
                             <label className="field">
                               <span>Месяц</span>
+
                               <SelectCombo
                                 value={startMonthLabel}
                                 placeholder="Месяц"
                                 isOpen={openCombo === `exp-start-month-${experience.localId}`}
                                 options={monthOptions}
+                                activeValue={experience.start_month}
                                 onToggle={() =>
                                   setOpenCombo((prev) =>
                                     prev === `exp-start-month-${experience.localId}`
                                       ? null
-                                      : `exp-start-month-${experience.localId}`
+                                      : `exp-start-month-${experience.localId}`,
                                   )
                                 }
                                 onSelect={(option) => {
@@ -1346,22 +1790,25 @@ export const CreateResumePage = () => {
                                     start_month: String(option.value),
                                   })
                                   setOpenCombo(null)
+                                  setSaveError('')
                                 }}
                               />
                             </label>
 
                             <label className="field">
                               <span>Год</span>
+
                               <SelectCombo
                                 value={experience.start_year}
                                 placeholder="Год"
                                 isOpen={openCombo === `exp-start-year-${experience.localId}`}
-                                options={yearOptions}
+                                options={resumeYearOptions}
+                                activeValue={experience.start_year}
                                 onToggle={() =>
                                   setOpenCombo((prev) =>
                                     prev === `exp-start-year-${experience.localId}`
                                       ? null
-                                      : `exp-start-year-${experience.localId}`
+                                      : `exp-start-year-${experience.localId}`,
                                   )
                                 }
                                 onSelect={(option) => {
@@ -1369,6 +1816,7 @@ export const CreateResumePage = () => {
                                     start_year: String(option.value),
                                   })
                                   setOpenCombo(null)
+                                  setSaveError('')
                                 }}
                               />
                             </label>
@@ -1383,14 +1831,15 @@ export const CreateResumePage = () => {
                               <input
                                 type="checkbox"
                                 checked={experience.is_current}
-                                onChange={(e) =>
+                                onChange={(event) =>
                                   updateExperienceRow(experience.localId, {
-                                    is_current: e.target.checked,
-                                    end_month: e.target.checked ? '' : experience.end_month,
-                                    end_year: e.target.checked ? '' : experience.end_year,
+                                    is_current: event.target.checked,
+                                    end_month: event.target.checked ? '' : experience.end_month,
+                                    end_year: event.target.checked ? '' : experience.end_year,
                                   })
                                 }
                               />
+
                               <span>Работаю сейчас</span>
                             </label>
                           </div>
@@ -1398,18 +1847,21 @@ export const CreateResumePage = () => {
                           <div className="date-grid date-grid--two">
                             <label className="field">
                               <span>Месяц</span>
+
                               <SelectCombo
                                 value={endMonthLabel}
                                 placeholder="Месяц"
                                 isOpen={openCombo === `exp-end-month-${experience.localId}`}
                                 options={monthOptions}
+                                activeValue={experience.end_month}
                                 disabled={experience.is_current}
                                 onToggle={() => {
                                   if (experience.is_current) return
+
                                   setOpenCombo((prev) =>
                                     prev === `exp-end-month-${experience.localId}`
                                       ? null
-                                      : `exp-end-month-${experience.localId}`
+                                      : `exp-end-month-${experience.localId}`,
                                   )
                                 }}
                                 onSelect={(option) => {
@@ -1417,24 +1869,28 @@ export const CreateResumePage = () => {
                                     end_month: String(option.value),
                                   })
                                   setOpenCombo(null)
+                                  setSaveError('')
                                 }}
                               />
                             </label>
 
                             <label className="field">
                               <span>Год</span>
+
                               <SelectCombo
                                 value={experience.end_year}
                                 placeholder="Год"
                                 isOpen={openCombo === `exp-end-year-${experience.localId}`}
-                                options={yearOptions}
+                                options={resumeYearOptions}
+                                activeValue={experience.end_year}
                                 disabled={experience.is_current}
                                 onToggle={() => {
                                   if (experience.is_current) return
+
                                   setOpenCombo((prev) =>
                                     prev === `exp-end-year-${experience.localId}`
                                       ? null
-                                      : `exp-end-year-${experience.localId}`
+                                      : `exp-end-year-${experience.localId}`,
                                   )
                                 }}
                                 onSelect={(option) => {
@@ -1442,6 +1898,7 @@ export const CreateResumePage = () => {
                                     end_year: String(option.value),
                                   })
                                   setOpenCombo(null)
+                                  setSaveError('')
                                 }}
                               />
                             </label>
@@ -1451,12 +1908,13 @@ export const CreateResumePage = () => {
 
                       <label className="field">
                         <span>Обязанности и достижения</span>
+
                         <textarea
-                          placeholder="Чем занимались?"
+                          placeholder="Опишите, чем занимались, какие задачи решали и каких результатов достигли."
                           value={experience.description}
-                          onChange={(e) =>
+                          onChange={(event) =>
                             updateExperienceRow(experience.localId, {
-                              description: e.target.value,
+                              description: event.target.value,
                             })
                           }
                         />
@@ -1471,7 +1929,8 @@ export const CreateResumePage = () => {
               </>
             )}
 
-            {saveError && <div className="form-error">{saveError}</div>}
+            {saveError ? <div className="form-error">{saveError}</div> : null}
+            {saveSuccess ? <div className="form-success">{saveSuccess}</div> : null}
           </section>
         </div>
       </main>
@@ -1480,30 +1939,25 @@ export const CreateResumePage = () => {
         <div className="resume-stepper-footer__inner">
           <div className="resume-stepper-footer__progress">
             {STEPS.map((step, index) => (
-              <span key={step} className={index <= currentStep ? 'is-active' : ''} />
+              <span
+                key={step}
+                className={index <= currentStep ? 'is-active' : ''}
+                title={STEP_TITLES[step]}
+              />
             ))}
           </div>
 
           <div className="resume-stepper-footer__actions">
-            <button type="button" className="btn btn--outline" onClick={goBack}>
+            <button type="button" className="btn btn--outline" onClick={goBack} disabled={isSaving}>
               Назад
             </button>
 
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={goNext}
-              disabled={
-                profileMutation.isPending ||
-                createResumeMutation.isPending ||
-                addEducationMutation.isPending ||
-                addSkillsBatchMutation.isPending ||
-                addWorkExperienceMutation.isPending
-              }
-            >
-              {currentStep === STEPS.length - 1
-                ? 'Сохранить и завершить'
-                : 'Сохранить и продолжить'}
+            <button type="button" className="btn btn--primary" onClick={goNext} disabled={isSaving}>
+              {isSaving
+                ? 'Сохраняем...'
+                : currentStep === STEPS.length - 1
+                  ? 'Сохранить и завершить'
+                  : 'Продолжить'}
             </button>
           </div>
         </div>

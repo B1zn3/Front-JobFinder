@@ -44,13 +44,13 @@ const fetchCompanyVacancies = async (companyId: string): Promise<VacancyListItem
       limit: 50,
     },
   })
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const formatSalary = (
   salaryMin?: number | null,
   salaryMax?: number | null,
-  currency = 'BYN'
+  currency = 'BYN',
 ) => {
   const min = typeof salaryMin === 'number' && salaryMin > 0 ? salaryMin : null
   const max = typeof salaryMax === 'number' && salaryMax > 0 ? salaryMax : null
@@ -66,10 +66,29 @@ const formatSalary = (
   return 'Зарплата не указана'
 }
 
+const formatCompactCount = (value?: number | null) => {
+  const num = Number(value ?? 0)
+
+  if (!Number.isFinite(num) || num <= 0) return '0'
+  if (num >= 1_000_000) return `${Math.floor(num / 1_000_000)}m+`
+  if (num >= 10_000) return `${Math.floor(num / 1_000)}k+`
+
+  return num.toLocaleString('ru-RU')
+}
+
 const normalizeWebsiteUrl = (website?: string | null) => {
   if (!website) return null
   if (/^https?:\/\//i.test(website)) return website
   return `https://${website}`
+}
+
+const pluralizeCities = (count: number) => {
+  const mod10 = count % 10
+  const mod100 = count % 100
+
+  if (mod10 === 1 && mod100 !== 11) return `${count} город`
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} города`
+  return `${count} городов`
 }
 
 const CompanyLogo = ({ src, name }: { src?: string | null; name: string }) => {
@@ -91,17 +110,27 @@ export const CompanyDetailPage = () => {
     queryKey: ['company-detail', companyId],
     queryFn: () => fetchCompany(companyId as string),
     enabled: Boolean(companyId),
+    refetchOnWindowFocus: false,
   })
 
   const vacanciesQuery = useQuery({
     queryKey: ['company-vacancies', companyId],
     queryFn: () => fetchCompanyVacancies(companyId as string),
     enabled: Boolean(companyId),
+    refetchOnWindowFocus: false,
   })
 
   const visibleVacancies = useMemo(() => {
     return (vacanciesQuery.data || []).slice(0, 4)
   }, [vacanciesQuery.data])
+
+  const normalizedCities = useMemo(() => {
+    const list = companyQuery.data?.city_names || []
+    return Array.from(new Set(list.filter(Boolean)))
+  }, [companyQuery.data?.city_names])
+
+  const visibleCities = normalizedCities.slice(0, 3)
+  const hiddenCitiesCount = Math.max(0, normalizedCities.length - visibleCities.length)
 
   if (!companyId) {
     return <main style={{ padding: 24 }}>Некорректный id компании.</main>
@@ -148,12 +177,6 @@ export const CompanyDetailPage = () => {
                         {company.company_type_name}
                       </span>
                     ) : null}
-
-                    {company.city_names?.length ? (
-                      <span className="company-detail-pill">
-                        {company.city_names.join(', ')}
-                      </span>
-                    ) : null}
                   </div>
 
                   {websiteUrl && (
@@ -188,6 +211,37 @@ export const CompanyDetailPage = () => {
                   </div>
                 </article>
 
+                {normalizedCities.length > 0 && (
+                  <article className="company-detail-card">
+                    <div className="company-detail-card__header">
+                      <h2>Офисы и города присутствия</h2>
+                    </div>
+
+                    <div className="company-detail-card__body">
+                      <div className="company-detail-cities">
+                        {visibleCities.map((city) => (
+                          <span key={city} className="company-detail-city-chip">
+                            {city}
+                          </span>
+                        ))}
+
+                        {hiddenCitiesCount > 0 && (
+                          <span
+                            className="company-detail-city-chip company-detail-city-chip--more"
+                            title={normalizedCities.slice(3).join(', ')}
+                          >
+                            +{hiddenCitiesCount}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="company-detail-cities__hint">
+                        {pluralizeCities(normalizedCities.length)}
+                      </p>
+                    </div>
+                  </article>
+                )}
+
                 <article className="company-detail-card">
                   <div className="company-detail-card__header">
                     <h2>Вакансии компании</h2>
@@ -212,9 +266,9 @@ export const CompanyDetailPage = () => {
                       <>
                         <div className="company-detail-vacancies">
                           {visibleVacancies.map((vacancy) => (
-                            <a
+                            <Link
                               key={vacancy.id}
-                              href={`/vacancies/${vacancy.id}`}
+                              to={`/vacancies/${vacancy.id}`}
                               target="_blank"
                               rel="noreferrer"
                               className="company-detail-vacancy"
@@ -225,7 +279,7 @@ export const CompanyDetailPage = () => {
                                   {formatSalary(
                                     vacancy.salary_min,
                                     vacancy.salary_max,
-                                    vacancy.currency || 'BYN'
+                                    vacancy.currency || 'BYN',
                                   )}
                                 </span>
                               </div>
@@ -242,7 +296,7 @@ export const CompanyDetailPage = () => {
                                   </span>
                                 )}
                               </div>
-                            </a>
+                            </Link>
                           ))}
                         </div>
 
@@ -286,24 +340,30 @@ export const CompanyDetailPage = () => {
                       </div>
                     )}
 
-                    {company.employee_count && (
+                    {company.employee_count ? (
                       <div className="company-detail-info-row">
                         <span>Сотрудников</span>
-                        <strong>{company.employee_count}</strong>
+                        <strong title={company.employee_count.toLocaleString('ru-RU')}>
+                          {formatCompactCount(company.employee_count)}
+                        </strong>
                       </div>
-                    )}
+                    ) : null}
 
                     <div className="company-detail-info-row">
                       <span>Активных вакансий</span>
-                      <strong>{company.vacancies_count || 0}</strong>
+                      <strong title={String(company.vacancies_count || 0)}>
+                        {formatCompactCount(company.vacancies_count || 0)}
+                      </strong>
                     </div>
 
-                    {company.city_names?.length ? (
+                    {normalizedCities.length > 0 && (
                       <div className="company-detail-info-row">
                         <span>Города</span>
-                        <strong>{company.city_names.join(', ')}</strong>
+                        <strong title={normalizedCities.join(', ')}>
+                          {pluralizeCities(normalizedCities.length)}
+                        </strong>
                       </div>
-                    ) : null}
+                    )}
 
                     {websiteUrl && (
                       <div className="company-detail-info-row">

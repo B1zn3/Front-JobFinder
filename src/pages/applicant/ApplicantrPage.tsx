@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Header } from '../../shared/ui/Header'
@@ -23,6 +23,12 @@ type ResumeListItem = {
   } | null
   created_at?: string | null
   updated_at?: string | null
+}
+
+const getPageSize = () => {
+  if (typeof window === 'undefined') return 4
+  if (window.innerWidth <= 560) return 3
+  return 4
 }
 
 const fetchApplicantProfile = async (): Promise<ApplicantProfile | null> => {
@@ -78,11 +84,26 @@ export const ApplicantPage = () => {
   const queryClient = useQueryClient()
 
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(getPageSize)
+
   const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const handleResize = () => {
+      setPageSize(getPageSize())
+      setCurrentPage(1)
+      setOpenMenuId(null)
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (!menuRef.current) return
+
       if (!menuRef.current.contains(event.target as Node)) {
         setOpenMenuId(null)
       }
@@ -113,6 +134,23 @@ export const ApplicantPage = () => {
   const profile = profileQuery.data
   const resumes = resumesQuery.data || []
 
+  const totalPages = Math.max(1, Math.ceil(resumes.length / pageSize))
+
+  useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, totalPages))
+  }, [totalPages])
+
+  const paginatedResumes = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return resumes.slice(start, start + pageSize)
+  }, [resumes, currentPage, pageSize])
+
+  const paginationPages = useMemo(() => {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }, [totalPages])
+
+  const hasPagination = resumes.length > pageSize
+
   return (
     <div className="applicant-page">
       <Header />
@@ -126,7 +164,9 @@ export const ApplicantPage = () => {
                   <div className="applicant-card__head">
                     <div>
                       <span className="applicant-card__eyebrow">Мои резюме</span>
+
                       <h1 className="applicant-card__title">Мои резюме</h1>
+
                       <p className="applicant-card__subtitle">
                         Создавайте и обновляйте резюме, чтобы работодатели быстрее находили вас.
                       </p>
@@ -143,6 +183,8 @@ export const ApplicantPage = () => {
 
                   {resumesQuery.isLoading && (
                     <div className="resume-list">
+                      <div className="resume-item resume-item--skeleton" />
+                      <div className="resume-item resume-item--skeleton" />
                       <div className="resume-item resume-item--skeleton" />
                       <div className="resume-item resume-item--skeleton" />
                     </div>
@@ -162,64 +204,117 @@ export const ApplicantPage = () => {
                   )}
 
                   {!resumesQuery.isLoading && !resumesQuery.isError && resumes.length > 0 && (
-                    <div className="resume-list">
-                      {resumes.map((resume, index) => (
-                        <article key={resume.id} className="resume-item">
-                          <div className="resume-item__top">
-                            <div className="resume-item__title-wrap">
-                              <h2>{getResumeTitle(resume, index)}</h2>
-                              <div className="resume-item__meta">
-                                Обновлено {formatDate(resume.updated_at)}
-                              </div>
-                            </div>
+                    <>
+                      <div className="resume-list">
+                        {paginatedResumes.map((resume, index) => {
+                          const realIndex = (currentPage - 1) * pageSize + index
 
-                            <div
-                              className="resume-item__menu-wrap"
-                              ref={openMenuId === resume.id ? menuRef : null}
-                            >
+                          return (
+                            <article key={resume.id} className="resume-item">
+                              <div className="resume-item__top">
+                                <div className="resume-item__title-wrap">
+                                  <h2>{getResumeTitle(resume, realIndex)}</h2>
+
+                                  <div className="resume-item__meta">
+                                    Обновлено {formatDate(resume.updated_at)}
+                                  </div>
+                                </div>
+
+                                <div
+                                  className="resume-item__menu-wrap"
+                                  ref={openMenuId === resume.id ? menuRef : null}
+                                >
+                                  <button
+                                    type="button"
+                                    className="resume-item__menu-trigger"
+                                    aria-label="Открыть меню резюме"
+                                    onClick={() =>
+                                      setOpenMenuId((prev) =>
+                                        prev === resume.id ? null : resume.id,
+                                      )
+                                    }
+                                  >
+                                    <DotsIcon />
+                                  </button>
+
+                                  {openMenuId === resume.id && (
+                                    <div className="resume-item__menu">
+                                      <button
+                                        type="button"
+                                        className="resume-item__menu-btn"
+                                        onClick={() =>
+                                          navigate(`/applicant/resume/${resume.id}/edit`)
+                                        }
+                                      >
+                                        Редактировать
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        className="resume-item__menu-btn resume-item__menu-btn--danger"
+                                        onClick={() => deleteMutation.mutate(resume.id)}
+                                        disabled={deleteMutation.isPending}
+                                      >
+                                        {deleteMutation.isPending ? 'Удаление...' : 'Удалить'}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
                               <button
                                 type="button"
-                                className="resume-item__menu-trigger"
-                                onClick={() =>
-                                  setOpenMenuId((prev) => (prev === resume.id ? null : resume.id))
-                                }
+                                className="btn btn--primary resume-item__open-btn"
+                                onClick={() => navigate(`/applicant/resume/${resume.id}`)}
                               >
-                                <DotsIcon />
+                                Открыть
                               </button>
+                            </article>
+                          )
+                        })}
+                      </div>
 
-                              {openMenuId === resume.id && (
-                                <div className="resume-item__menu">
-                                  <button
-                                    type="button"
-                                    className="resume-item__menu-btn"
-                                    onClick={() => navigate(`/applicant/resume/${resume.id}/edit`)}
-                                  >
-                                    Редактировать
-                                  </button>
+                      {hasPagination && (
+                        <div className="applicant-pagination" aria-label="Пагинация резюме">
+                          <button
+                            type="button"
+                            className="applicant-pagination__arrow"
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                          >
+                            Назад
+                          </button>
 
-                                  <button
-                                    type="button"
-                                    className="resume-item__menu-btn resume-item__menu-btn--danger"
-                                    onClick={() => deleteMutation.mutate(resume.id)}
-                                    disabled={deleteMutation.isPending}
-                                  >
-                                    Удалить
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                          <div className="applicant-pagination__pages">
+                            {paginationPages.map((page) => (
+                              <button
+                                key={page}
+                                type="button"
+                                className={
+                                  page === currentPage
+                                    ? 'applicant-pagination__page applicant-pagination__page--active'
+                                    : 'applicant-pagination__page'
+                                }
+                                onClick={() => setCurrentPage(page)}
+                              >
+                                {page}
+                              </button>
+                            ))}
                           </div>
 
                           <button
                             type="button"
-                            className="btn btn--primary resume-item__open-btn"
-                            onClick={() => navigate(`/applicant/resume/${resume.id}`)}
+                            className="applicant-pagination__arrow"
+                            disabled={currentPage === totalPages}
+                            onClick={() =>
+                              setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                            }
                           >
-                            Открыть
+                            Вперёд
                           </button>
-                        </article>
-                      ))}
-                    </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </section>
@@ -241,6 +336,7 @@ export const ApplicantPage = () => {
 
                     <div className="profile-mini__content">
                       <h2>Профиль соискателя</h2>
+
                       <p>
                         Заполните данные профиля и настройте видимость для работодателей.
                       </p>

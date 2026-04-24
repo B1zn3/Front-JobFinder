@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { http } from '../../shared/api/http'
@@ -21,6 +21,8 @@ type CompanyListItem = {
   company_type_name?: string | null
 }
 
+const PAGE_SIZE = 12
+
 const RU_LETTERS = [
   'А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З', 'И', 'Й', 'К', 'Л', 'М',
   'Н', 'О', 'П', 'Р', 'С', 'Т', 'У', 'Ф', 'Х', 'Ц', 'Ч', 'Ш', 'Щ',
@@ -34,18 +36,17 @@ const EN_LETTERS = [
 
 const fetchCities = async (): Promise<City[]> => {
   const { data } = await http.get('/public/catalogs/cities')
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const fetchCompanies = async (params: Record<string, unknown>): Promise<CompanyListItem[]> => {
   const { data } = await http.get('/public/companies', { params })
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const getFirstLetter = (name: string) => {
   const first = name.trim().charAt(0).toUpperCase()
-  if (!first) return '#'
-  return first
+  return first || '#'
 }
 
 const parseCityIds = (value: string | null): number[] => {
@@ -55,6 +56,63 @@ const parseCityIds = (value: string | null): number[] => {
     .split(',')
     .map((item) => Number(item.trim()))
     .filter((item) => Number.isInteger(item) && item > 0)
+}
+
+const formatCompactCount = (value?: number | null) => {
+  const num = Number(value ?? 0)
+
+  if (!Number.isFinite(num) || num <= 0) return '0'
+  if (num >= 1_000_000) return `${Math.floor(num / 1_000_000)}m+`
+  if (num >= 10_000) return `${Math.floor(num / 1_000)}k+`
+
+  return num.toLocaleString('ru-RU')
+}
+
+const formatVacanciesLabel = (count?: number) => {
+  const value = Number(count ?? 0)
+
+  if (value >= 10_000) {
+    return `${formatCompactCount(value)} вакансий`
+  }
+
+  const mod10 = value % 10
+  const mod100 = value % 100
+
+  if (mod10 === 1 && mod100 !== 11) return `${value} вакансия`
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${value} вакансии`
+  }
+
+  return `${value} вакансий`
+}
+
+const formatCitiesPreview = (cityNames?: string[]) => {
+  if (!cityNames?.length) return ''
+
+  const visible = cityNames.slice(0, 3)
+  const rest = cityNames.length - visible.length
+
+  if (rest > 0) {
+    return `${visible.join(', ')} +${rest}`
+  }
+
+  return visible.join(', ')
+}
+
+const buildVisiblePages = (currentPage: number, totalPages: number) => {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }
+
+  if (currentPage <= 4) {
+    return [1, 2, 3, 4, 5, 'dots-right', totalPages] as const
+  }
+
+  if (currentPage >= totalPages - 3) {
+    return [1, 'dots-left', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages] as const
+  }
+
+  return [1, 'dots-left', currentPage - 1, currentPage, currentPage + 1, 'dots-right', totalPages] as const
 }
 
 const CompanyLogo = ({ src, name }: { src?: string | null; name: string }) => {
@@ -91,14 +149,14 @@ function CityModal({ open, cities, selectedCityIds, onClose, onApply }: CityModa
   if (!open) return null
 
   const filteredCities = cities.filter((city) =>
-    city.name.toLowerCase().includes(search.toLowerCase())
+    city.name.toLowerCase().includes(search.toLowerCase()),
   )
 
   const toggleCity = (cityId: number) => {
     setTempCityIds((prev) =>
       prev.includes(cityId)
         ? prev.filter((id) => id !== cityId)
-        : [...prev, cityId]
+        : [...prev, cityId],
     )
   }
 
@@ -173,14 +231,17 @@ function CityModal({ open, cities, selectedCityIds, onClose, onApply }: CityModa
 export const CompaniesPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const sectionsRef = useRef<Record<string, HTMLDivElement | null>>({})
+  const initialPage = Number(searchParams.get('page') || '1')
+  const [page, setPage] = useState(
+    Number.isNaN(initialPage) || initialPage < 1 ? 1 : initialPage,
+  )
 
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
   const [selectedLetter, setSelectedLetter] = useState(searchParams.get('letter') || 'Все')
   const [cityIds, setCityIds] = useState<number[]>(parseCityIds(searchParams.get('city_ids')))
   const [hasVacanciesOnly, setHasVacanciesOnly] = useState(
-    searchParams.get('has_vacancies_only') === 'true'
+    searchParams.get('has_vacancies_only') === 'true',
   )
   const [cityModalOpen, setCityModalOpen] = useState(false)
 
@@ -208,9 +269,10 @@ export const CompaniesPage = () => {
     if (cityIds.length) params.city_ids = cityIds.join(',')
     if (hasVacanciesOnly) params.has_vacancies_only = 'true'
     if (selectedLetter && selectedLetter !== 'Все') params.letter = selectedLetter
+    if (page > 1) params.page = String(page)
 
     setSearchParams(params)
-  }, [search, cityIds, hasVacanciesOnly, selectedLetter, setSearchParams])
+  }, [search, cityIds, hasVacanciesOnly, selectedLetter, page, setSearchParams])
 
   const selectedCityNames = useMemo(() => {
     if (!cityIds.length) return []
@@ -227,33 +289,6 @@ export const CompaniesPage = () => {
     return `${selectedCityNames.slice(0, 2).join(', ')} +${selectedCityNames.length - 2}`
   }, [selectedCityNames])
 
-  const filteredCompaniesByLetter = useMemo(() => {
-    const companies = companiesQuery.data || []
-
-    const normalized = companies.map((company) => ({
-      ...company,
-      first_letter: company.first_letter || getFirstLetter(company.name),
-    }))
-
-    const lettersFiltered =
-      selectedLetter === 'Все'
-        ? normalized
-        : normalized.filter((company) => company.first_letter === selectedLetter)
-
-    const grouped = lettersFiltered.reduce<Record<string, CompanyListItem[]>>((acc, company) => {
-      const letter = company.first_letter || '#'
-      if (!acc[letter]) acc[letter] = []
-      acc[letter].push(company)
-      return acc
-    }, {})
-
-    Object.keys(grouped).forEach((letter) => {
-      grouped[letter].sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-    })
-
-    return grouped
-  }, [companiesQuery.data, selectedLetter])
-
   const availableLetters = useMemo(() => {
     const companies = companiesQuery.data || []
     const set = new Set<string>()
@@ -265,27 +300,54 @@ export const CompaniesPage = () => {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ru'))
   }, [companiesQuery.data])
 
-  const totalCompanies = companiesQuery.data?.length ?? 0
+  const filteredCompanies = useMemo(() => {
+    const companies = (companiesQuery.data || [])
+      .map((company) => ({
+        ...company,
+        first_letter: company.first_letter || getFirstLetter(company.name),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
+    if (selectedLetter === 'Все') return companies
+
+    return companies.filter((company) => company.first_letter === selectedLetter)
+  }, [companiesQuery.data, selectedLetter])
+
+  const totalCompanies = filteredCompanies.length
+  const totalPages = Math.max(1, Math.ceil(totalCompanies / PAGE_SIZE))
+
+  const paginatedCompanies = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return filteredCompanies.slice(start, start + PAGE_SIZE)
+  }, [filteredCompanies, page])
+
+  const groupedCompaniesByLetter = useMemo(() => {
+    return paginatedCompanies.reduce<Record<string, CompanyListItem[]>>((acc, company) => {
+      const letter = company.first_letter || '#'
+      if (!acc[letter]) acc[letter] = []
+      acc[letter].push(company)
+      return acc
+    }, {})
+  }, [paginatedCompanies])
+
+  const visiblePages = useMemo(() => buildVisiblePages(page, totalPages), [page, totalPages])
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(1)
+    }
+  }, [page, totalPages])
+
+  const handleSearchSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setSearch(searchInput.trim())
+    setPage(1)
   }
 
   const handleLetterClick = (letter: string) => {
     setSelectedLetter(letter)
-
-    if (letter === 'Все') {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-      return
-    }
-
-    requestAnimationFrame(() => {
-      const section = sectionsRef.current[letter]
-      if (section) {
-        section.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-    })
+    setPage(1)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   return (
@@ -315,6 +377,7 @@ export const CompaniesPage = () => {
                   type="button"
                   className="companies-page__city-trigger"
                   onClick={() => setCityModalOpen(true)}
+                  title={selectedCityNames.join(', ')}
                 >
                   + {cityTriggerLabel}
                 </button>
@@ -324,7 +387,10 @@ export const CompaniesPage = () => {
                   <input
                     type="checkbox"
                     checked={hasVacanciesOnly}
-                    onChange={(e) => setHasVacanciesOnly(e.target.checked)}
+                    onChange={(e) => {
+                      setHasVacanciesOnly(e.target.checked)
+                      setPage(1)
+                    }}
                   />
                   <span className="companies-page__switch-slider" />
                 </label>
@@ -374,12 +440,12 @@ export const CompaniesPage = () => {
         <section className="companies-page__catalog">
           <div className="container">
             <div className="companies-page__summary">
-              <span>{totalCompanies.toLocaleString('ru-RU')} компаний</span>
+              <span>{formatCompactCount(totalCompanies)} компаний</span>
             </div>
 
             {companiesQuery.isLoading && (
               <div className="companies-page__grid">
-                {Array.from({ length: 12 }).map((_, index) => (
+                {Array.from({ length: PAGE_SIZE }).map((_, index) => (
                   <div key={index} className="companies-page__card companies-page__card--skeleton" />
                 ))}
               </div>
@@ -393,59 +459,111 @@ export const CompaniesPage = () => {
             )}
 
             {companiesQuery.isSuccess && totalCompanies > 0 && (
-              <div className="companies-page__sections">
-                {Object.entries(filteredCompaniesByLetter)
-                  .sort(([a], [b]) => a.localeCompare(b, 'ru'))
-                  .map(([letter, companies]) => (
-                    <div
-                      key={letter}
-                      className="companies-page__section"
-                      ref={(node) => {
-                        sectionsRef.current[letter] = node
-                      }}
-                    >
-                      <h2 className="companies-page__letter">{letter}</h2>
+              <>
+                <div className="companies-page__sections">
+                  {Object.entries(groupedCompaniesByLetter)
+                    .sort(([a], [b]) => a.localeCompare(b, 'ru'))
+                    .map(([letter, companies]) => (
+                      <div key={letter} className="companies-page__section">
+                        <h2 className="companies-page__letter">{letter}</h2>
 
-                      <div className="companies-page__grid">
-                        {companies.map((company) => (
-                          <a
-                            key={company.id}
-                            href={`/companies/${company.id}`}
-                            className="companies-page__card"
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <div className="companies-page__card-head">
-                              <div className="companies-page__card-logo">
-                                <CompanyLogo src={company.logo} name={company.name} />
+                        <div className="companies-page__grid">
+                          {companies.map((company) => (
+                            <a
+                              key={company.id}
+                              href={`/companies/${company.id}`}
+                              className="companies-page__card"
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <div className="companies-page__card-head">
+                                <div className="companies-page__card-logo">
+                                  <CompanyLogo src={company.logo} name={company.name} />
+                                </div>
+
+                                <div className="companies-page__card-main">
+                                  <h3>{company.name}</h3>
+
+                                  {company.company_type_name && (
+                                    <div className="companies-page__card-type">
+                                      {company.company_type_name}
+                                    </div>
+                                  )}
+
+                                  {company.city_names && company.city_names.length > 0 && (
+                                    <div
+                                      className="companies-page__card-cities"
+                                      title={company.city_names.join(', ')}
+                                    >
+                                      {formatCitiesPreview(company.city_names)}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
 
-                              <div className="companies-page__card-main">
-                                <h3>{company.name}</h3>
-
-                                {company.company_type_name && (
-                                  <div className="companies-page__card-type">
-                                    {company.company_type_name}
-                                  </div>
-                                )}
-
-                                {company.city_names && company.city_names.length > 0 && (
-                                  <div className="companies-page__card-cities">
-                                    {company.city_names.slice(0, 3).join(', ')}
-                                  </div>
-                                )}
+                              <div className="companies-page__card-footer">
+                                {formatVacanciesLabel(company.vacancies_count)}
                               </div>
-                            </div>
-
-                            <div className="companies-page__card-footer">
-                              {company.vacancies_count} {company.vacancies_count === 1 ? 'вакансия' : 'вакансий'}
-                            </div>
-                          </a>
-                        ))}
+                            </a>
+                          ))}
+                        </div>
                       </div>
+                    ))}
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="companies-page__pagination">
+                    <button
+                      type="button"
+                      className="companies-page__pagination-btn"
+                      onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                      disabled={page === 1}
+                    >
+                      Назад
+                    </button>
+
+                    <div className="companies-page__pagination-pages">
+                      {visiblePages.map((item, index) => {
+                        if (typeof item !== 'number') {
+                          return (
+                            <span
+                              key={`${item}-${index}`}
+                              className="companies-page__pagination-dots"
+                            >
+                              …
+                            </span>
+                          )
+                        }
+
+                        return (
+                          <button
+                            key={item}
+                            type="button"
+                            className={`companies-page__pagination-page ${
+                              item === page ? 'is-active' : ''
+                            }`}
+                            onClick={() => {
+                              setPage(item)
+                              window.scrollTo({ top: 0, behavior: 'smooth' })
+                            }}
+                          >
+                            {item}
+                          </button>
+                        )
+                      })}
                     </div>
-                  ))}
-              </div>
+
+                    <button
+                      type="button"
+                      className="companies-page__pagination-btn"
+                      onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                      disabled={page === totalPages}
+                    >
+                      Вперёд
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </section>
@@ -458,7 +576,10 @@ export const CompaniesPage = () => {
         cities={citiesQuery.data || []}
         selectedCityIds={cityIds}
         onClose={() => setCityModalOpen(false)}
-        onApply={(value) => setCityIds(value)}
+        onApply={(value) => {
+          setCityIds(value)
+          setPage(1)
+        }}
       />
     </div>
   )

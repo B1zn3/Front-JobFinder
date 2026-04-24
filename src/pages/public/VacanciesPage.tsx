@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type FormEvent,
+  type KeyboardEvent,
+  type SetStateAction,
+} from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { http } from '../../shared/api/http'
@@ -40,44 +49,57 @@ type Vacancy = {
 
 const PAGE_SIZE = 12
 
+const formatCompactCount = (value?: number | null) => {
+  const num = Number(value ?? 0)
+
+  if (!Number.isFinite(num) || num <= 0) return '0'
+  if (num >= 1_000_000) return `${Math.floor(num / 1_000_000)}m+`
+  if (num >= 10_000) return `${Math.floor(num / 1_000)}k+`
+
+  return num.toLocaleString('ru-RU')
+}
+
 const fetchVacancies = async (params: Record<string, unknown>): Promise<Vacancy[]> => {
   const { data } = await http.get('/public/vacancies', { params })
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const fetchCities = async (): Promise<NamedEntity[]> => {
   const { data } = await http.get('/public/catalogs/cities')
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const fetchProfessions = async (): Promise<NamedEntity[]> => {
   const { data } = await http.get('/public/catalogs/professions')
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const fetchEmploymentTypes = async (): Promise<NamedEntity[]> => {
   const { data } = await http.get('/public/catalogs/employment-types')
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const fetchExperiences = async (): Promise<NamedEntity[]> => {
   const { data } = await http.get('/public/catalogs/experiences')
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const fetchWorkSchedules = async (): Promise<NamedEntity[]> => {
   const { data } = await http.get('/public/catalogs/work-schedules')
-  return data
+  return Array.isArray(data) ? data : []
 }
 
 const fetchVacanciesCount = async (params: Record<string, unknown>): Promise<number> => {
+  const limitFromParams = typeof params.limit === 'number' ? params.limit : 100
+
   const { data } = await http.get('/public/vacancies', {
     params: {
       ...params,
       skip: 0,
-      limit: 100,
+      limit: limitFromParams,
     },
   })
+
   return Array.isArray(data) ? data.length : 0
 }
 
@@ -95,7 +117,7 @@ const getSkills = (skills?: Skill[] | string[]) => {
 const formatSalary = (
   salaryMin?: number | null,
   salaryMax?: number | null,
-  currency = 'BYN'
+  currency = 'BYN',
 ) => {
   const min = typeof salaryMin === 'number' && salaryMin > 0 ? salaryMin : null
   const max = typeof salaryMax === 'number' && salaryMax > 0 ? salaryMax : null
@@ -125,7 +147,7 @@ type CustomSelectProps = {
   value?: number
   options: NamedEntity[]
   openSelect: string | null
-  setOpenSelect: React.Dispatch<React.SetStateAction<string | null>>
+  setOpenSelect: Dispatch<SetStateAction<string | null>>
   onChange: (value?: number) => void
 }
 
@@ -205,38 +227,47 @@ export const VacanciesPage = () => {
 
   const initialPage = Number(searchParams.get('page') || '1')
   const [page, setPage] = useState(Number.isNaN(initialPage) || initialPage < 1 ? 1 : initialPage)
+
   const [openSelect, setOpenSelect] = useState<string | null>(null)
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
 
   const [cityId, setCityId] = useState<number | undefined>(
-    searchParams.get('city_id') ? Number(searchParams.get('city_id')) : undefined
+    searchParams.get('city_id') ? Number(searchParams.get('city_id')) : undefined,
   )
   const [professionId, setProfessionId] = useState<number | undefined>(
-    searchParams.get('profession_id') ? Number(searchParams.get('profession_id')) : undefined
+    searchParams.get('profession_id') ? Number(searchParams.get('profession_id')) : undefined,
   )
   const [employmentTypeId, setEmploymentTypeId] = useState<number | undefined>(
-    searchParams.get('employment_type_id') ? Number(searchParams.get('employment_type_id')) : undefined
+    searchParams.get('employment_type_id')
+      ? Number(searchParams.get('employment_type_id'))
+      : undefined,
   )
   const [experienceId, setExperienceId] = useState<number | undefined>(
-    searchParams.get('experience_id') ? Number(searchParams.get('experience_id')) : undefined
+    searchParams.get('experience_id') ? Number(searchParams.get('experience_id')) : undefined,
   )
   const [workScheduleId, setWorkScheduleId] = useState<number | undefined>(
-    searchParams.get('work_schedule_id') ? Number(searchParams.get('work_schedule_id')) : undefined
+    searchParams.get('work_schedule_id') ? Number(searchParams.get('work_schedule_id')) : undefined,
   )
   const [salaryFrom, setSalaryFrom] = useState<number | undefined>(
-    searchParams.get('salary_from') ? Number(searchParams.get('salary_from')) : undefined
+    searchParams.get('salary_from') ? Number(searchParams.get('salary_from')) : undefined,
   )
   const [salaryTo, setSalaryTo] = useState<number | undefined>(
-    searchParams.get('salary_to') ? Number(searchParams.get('salary_to')) : undefined
+    searchParams.get('salary_to') ? Number(searchParams.get('salary_to')) : undefined,
   )
 
   const citiesQuery = useQuery({ queryKey: ['cities'], queryFn: fetchCities })
   const professionsQuery = useQuery({ queryKey: ['professions'], queryFn: fetchProfessions })
-  const employmentTypesQuery = useQuery({ queryKey: ['employment-types'], queryFn: fetchEmploymentTypes })
+  const employmentTypesQuery = useQuery({
+    queryKey: ['employment-types'],
+    queryFn: fetchEmploymentTypes,
+  })
   const experiencesQuery = useQuery({ queryKey: ['experiences'], queryFn: fetchExperiences })
-  const workSchedulesQuery = useQuery({ queryKey: ['work-schedules'], queryFn: fetchWorkSchedules })
-  
+  const workSchedulesQuery = useQuery({
+    queryKey: ['work-schedules'],
+    queryFn: fetchWorkSchedules,
+  })
+
   const filterParams = useMemo(
     () => ({
       search: search || undefined,
@@ -257,7 +288,7 @@ export const VacanciesPage = () => {
       workScheduleId,
       salaryFrom,
       salaryTo,
-    ]
+    ],
   )
 
   const vacanciesQuery = useQuery({
@@ -269,17 +300,18 @@ export const VacanciesPage = () => {
         limit: PAGE_SIZE,
       }),
   })
+
   const vacanciesCountQuery = useQuery({
     queryKey: ['vacancies-count', filterParams],
-    queryFn: () => fetchVacanciesCount(filterParams),
+    queryFn: () => fetchVacanciesCount({ ...filterParams, limit: 100 }),
   })
 
-const totalSiteVacanciesQuery = useQuery({
+  const totalSiteVacanciesQuery = useQuery({
     queryKey: ['vacancies-count-total-site'],
     queryFn: () =>
       fetchVacanciesCount({
         skip: 0,
-        limit: 1000,
+        limit: 100,
       }),
   })
 
@@ -325,11 +357,18 @@ const totalSiteVacanciesQuery = useQuery({
       salaryFrom,
       salaryTo,
     ].filter(Boolean).length
-  }, [search, cityId, professionId, employmentTypeId, experienceId, workScheduleId, salaryFrom, salaryTo])
+  }, [
+    search,
+    cityId,
+    professionId,
+    employmentTypeId,
+    experienceId,
+    workScheduleId,
+    salaryFrom,
+    salaryTo,
+  ])
 
-
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setPage(1)
     setSearch(searchInput.trim())
@@ -354,6 +393,13 @@ const totalSiteVacanciesQuery = useQuery({
     window.open(`/vacancies/${id}`, '_blank', 'noopener,noreferrer')
   }
 
+  const handleCardKeyDown = (e: KeyboardEvent<HTMLElement>, id: number) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      openVacancy(id)
+    }
+  }
+
   const goToPage = (nextPage: number) => {
     if (nextPage < 1 || nextPage > totalPages) return
     setPage(nextPage)
@@ -365,7 +411,7 @@ const totalSiteVacanciesQuery = useQuery({
       setPage(1)
     }
   }, [page, totalPages])
-  
+
   return (
     <div className="vacancies-page">
       <Header />
@@ -374,7 +420,10 @@ const totalSiteVacanciesQuery = useQuery({
         <section className="vacancies-hero">
           <div className="container">
             <div className="vacancies-hero__content">
-              <h1 className="vacancies-hero__title">Вакансии, оформленные в стиле главной страницы</h1>
+              <h1 className="vacancies-hero__title">
+                Вакансии, оформленные в стиле главной страницы
+              </h1>
+
               <p className="vacancies-hero__text">
                 Удобный каталог вакансий с фильтрами по городу, профессии, типу занятости,
                 графику работы, опыту и зарплате.
@@ -396,18 +445,24 @@ const totalSiteVacanciesQuery = useQuery({
               <div className="vacancies-hero__stats">
                 <div className="vacancies-stat">
                   <span className="vacancies-stat__value">
-                    {totalSiteVacanciesQuery.isLoading ? '...' : totalSiteVacancies}
+                    {totalSiteVacanciesQuery.isLoading
+                      ? '...'
+                      : formatCompactCount(totalSiteVacancies)}
                   </span>
                   <span className="vacancies-stat__label">вакансий</span>
                 </div>
 
                 <div className="vacancies-stat">
-                  <span className="vacancies-stat__value">{citiesQuery.data?.length ?? '100+'}</span>
+                  <span className="vacancies-stat__value">
+                    {formatCompactCount(citiesQuery.data?.length ?? 0)}
+                  </span>
                   <span className="vacancies-stat__label">городов</span>
                 </div>
 
                 <div className="vacancies-stat">
-                  <span className="vacancies-stat__value">{professionsQuery.data?.length ?? '80+'}</span>
+                  <span className="vacancies-stat__value">
+                    {formatCompactCount(professionsQuery.data?.length ?? 0)}
+                  </span>
                   <span className="vacancies-stat__label">профессий</span>
                 </div>
               </div>
@@ -423,34 +478,40 @@ const totalSiteVacanciesQuery = useQuery({
               </div>
 
               <div className="vacancies-result-badge">
-                Найдено: <strong>{filteredVacanciesCount}</strong>
+                Найдено: <strong>{formatCompactCount(filteredVacanciesCount)}</strong>
               </div>
             </div>
 
             {activeFiltersCount > 0 && (
               <div className="active-filters">
                 <span className="active-filters__label">Фильтры:</span>
+
                 {search && <span className="active-filter-chip">Поиск: {search}</span>}
+
                 {cityId && (
                   <span className="active-filter-chip">
                     {citiesQuery.data?.find((x) => x.id === cityId)?.name}
                   </span>
                 )}
+
                 {professionId && (
                   <span className="active-filter-chip">
                     {professionsQuery.data?.find((x) => x.id === professionId)?.name}
                   </span>
                 )}
+
                 {employmentTypeId && (
                   <span className="active-filter-chip">
                     {employmentTypesQuery.data?.find((x) => x.id === employmentTypeId)?.name}
                   </span>
                 )}
+
                 {experienceId && (
                   <span className="active-filter-chip">
                     {experiencesQuery.data?.find((x) => x.id === experienceId)?.name}
                   </span>
                 )}
+
                 {workScheduleId && (
                   <span className="active-filter-chip">
                     {workSchedulesQuery.data?.find((x) => x.id === workScheduleId)?.name}
@@ -486,6 +547,7 @@ const totalSiteVacanciesQuery = useQuery({
                       setCityId(value)
                     }}
                   />
+
                   <CustomSelect
                     selectKey="profession"
                     label="Профессия"
@@ -527,21 +589,20 @@ const totalSiteVacanciesQuery = useQuery({
                       setExperienceId(value)
                     }}
                   />
-                  
 
-                    <CustomSelect
-                      selectKey="workSchedule"
-                      label="График работы"
-                      placeholder="Любой график"
-                      value={workScheduleId}
-                      options={workSchedulesQuery.data || []}
-                      openSelect={openSelect}
-                      setOpenSelect={setOpenSelect}
-                      onChange={(value) => {
-                        setPage(1)
-                        setWorkScheduleId(value)
-                      }}
-                    />
+                  <CustomSelect
+                    selectKey="workSchedule"
+                    label="График работы"
+                    placeholder="Любой график"
+                    value={workScheduleId}
+                    options={workSchedulesQuery.data || []}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
+                    onChange={(value) => {
+                      setPage(1)
+                      setWorkScheduleId(value)
+                    }}
+                  />
 
                   <div className="filter-group">
                     <label className="filter-label">Зарплата</label>
@@ -556,6 +617,7 @@ const totalSiteVacanciesQuery = useQuery({
                           setSalaryFrom(e.target.value ? Number(e.target.value) : undefined)
                         }}
                       />
+
                       <input
                         type="number"
                         className="filter-control"
@@ -608,6 +670,9 @@ const totalSiteVacanciesQuery = useQuery({
                             key={vacancy.id}
                             className="vacancy-card"
                             onClick={() => openVacancy(vacancy.id)}
+                            onKeyDown={(e) => handleCardKeyDown(e, vacancy.id)}
+                            role="button"
+                            tabIndex={0}
                           >
                             <div className="vacancy-card__top">
                               <div className="vacancy-card__main">
@@ -625,8 +690,12 @@ const totalSiteVacanciesQuery = useQuery({
                             <div className="vacancy-card__meta">
                               {city && <span className="vacancy-pill">{city}</span>}
                               {profession && <span className="vacancy-pill">{profession}</span>}
-                              {employmentType && <span className="vacancy-pill">{employmentType}</span>}
-                              {workSchedule && <span className="vacancy-pill">{workSchedule}</span>}
+                              {employmentType && (
+                                <span className="vacancy-pill">{employmentType}</span>
+                              )}
+                              {workSchedule && (
+                                <span className="vacancy-pill">{workSchedule}</span>
+                              )}
                               {experience && <span className="vacancy-pill">{experience}</span>}
                             </div>
 
@@ -650,6 +719,7 @@ const totalSiteVacanciesQuery = useQuery({
 
                             <div className="vacancy-card__bottom">
                               <span className="vacancy-card__link">Подробнее о вакансии</span>
+
                               <button
                                 type="button"
                                 className="btn btn--primary"
@@ -680,11 +750,14 @@ const totalSiteVacanciesQuery = useQuery({
                         <div className="vacancies-pagination__pages">
                           {Array.from({ length: totalPages }).map((_, index) => {
                             const pageNumber = index + 1
+
                             return (
                               <button
                                 key={pageNumber}
                                 type="button"
-                                className={`vacancies-pagination__page ${page === pageNumber ? 'is-active' : ''}`}
+                                className={`vacancies-pagination__page ${
+                                  page === pageNumber ? 'is-active' : ''
+                                }`}
                                 onClick={() => goToPage(pageNumber)}
                               >
                                 {pageNumber}

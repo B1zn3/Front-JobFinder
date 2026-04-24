@@ -89,6 +89,11 @@ type UserAdmin = {
   applicant_id?: number | null
   created_at?: string | null
   updated_at?: string | null
+  company_name?: string | null
+  applicant_full_name?: string | null
+  vacancies_count?: number
+  resumes_count?: number
+  applications_count?: number
 }
 
 type CompanyAdmin = {
@@ -141,6 +146,7 @@ type VacancyAdmin = {
   profession_name?: string | null
   status_name?: string | null
   created_at?: string | null
+  skills?: Array<{ id?: number; name?: string } | string>
 }
 
 type ApplicationAdmin = {
@@ -197,72 +203,6 @@ const catalogDefinitions: Array<{ key: CatalogKey; label: string }> = [
   { key: 'statuses', label: 'Статусы вакансий' },
 ]
 
-const fieldLabels: Record<string, string> = {
-  id: 'ID',
-  email: 'Email',
-  role: 'Роль',
-  is_active: 'Активен',
-  created_at: 'Создан',
-  updated_at: 'Обновлён',
-  title: 'Название',
-  description: 'Описание',
-  name: 'Название',
-  phone: 'Телефон',
-  website: 'Сайт',
-  user_id: 'ID пользователя',
-  user_email: 'Email пользователя',
-  company_id: 'ID компании',
-  applicant_id: 'ID соискателя',
-  city_id: 'ID города',
-  city_name: 'Город',
-  profession_id: 'ID профессии',
-  profession_name: 'Профессия',
-  status_id: 'ID статуса',
-  status_name: 'Статус вакансии',
-  employment_type_id: 'Тип занятости',
-  work_schedule_id: 'График работы',
-  experience_id: 'Опыт',
-  currency_id: 'ID валюты',
-  currency: 'Валюта',
-  salary_min: 'Зарплата от',
-  salary_max: 'Зарплата до',
-  moderation_status: 'Статус модерации',
-  moderation_comment: 'Комментарий модерации',
-  vacancy_id: 'ID вакансии',
-  vacancy_ids: 'Вакансии',
-  resume_id: 'ID резюме',
-  vacancy_title: 'Вакансия',
-  company_name: 'Компания',
-  resume_title: 'Резюме',
-  resume_profession: 'Профессия в резюме',
-  applicant_name: 'Соискатель',
-  status: 'Статус',
-  first_name: 'Имя',
-  last_name: 'Фамилия',
-  middle_name: 'Отчество',
-  full_name: 'ФИО',
-  educations: 'Образование',
-  resumes: 'Резюме',
-  applications: 'Отклики',
-  vacancies: 'Вакансии',
-  birth_date: 'Дата рождения',
-  gender: 'Пол',
-  photo: 'Фото',
-  company_type_name: 'Тип компании',
-  cities: 'Города',
-  vacancies_count: 'Количество вакансий',
-  resumes_count: 'Количество резюме',
-  educations_count: 'Количество образований',
-  applications_count: 'Количество откликов',
-  founded_year: 'Год основания',
-  employee_count: 'Количество сотрудников',
-  skills: 'Навыки',
-  work_experiences_count: 'Опытов работы',
-  institution_name: 'Учебное заведение',
-  start_date: 'Дата начала',
-  end_date: 'Дата окончания',
-}
-
 const statusLabels: Record<string, string> = {
   pending: 'На рассмотрении',
   review: 'На рассмотрении',
@@ -299,14 +239,6 @@ const formatDateTime = (value?: string | null) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleString('ru-RU')
-}
-
-const prettifyKey = (key: string) => {
-  if (fieldLabels[key]) return fieldLabels[key]
-
-  return key
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
 const formatSalary = (min?: number | null, max?: number | null, currency = 'BYN') => {
@@ -351,6 +283,17 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback
 }
 
+const maskEmail = (email: string) => {
+  const [localPart = '', domain = ''] = email.split('@')
+  if (!domain) return email
+
+  const visible = localPart.slice(0, 3)
+  const maskedLength = Math.max(localPart.length - visible.length, 3)
+  const masked = '•'.repeat(maskedLength)
+
+  return `${visible}${masked}@${domain}`
+}
+
 const normalizeUser = (item: Record<string, unknown>): UserAdmin => ({
   id: safeNumber(item.id) ?? 0,
   email: safeString(item.email) || 'Без email',
@@ -360,6 +303,11 @@ const normalizeUser = (item: Record<string, unknown>): UserAdmin => ({
   applicant_id: safeNumber(item.applicant_id),
   created_at: safeString(item.created_at) || null,
   updated_at: safeString(item.updated_at) || null,
+  company_name: safeString(item.company_name) || null,
+  applicant_full_name: safeString(item.applicant_full_name) || null,
+  vacancies_count: safeNumber(item.vacancies_count) ?? 0,
+  resumes_count: safeNumber(item.resumes_count) ?? 0,
+  applications_count: safeNumber(item.applications_count) ?? 0,
 })
 
 const normalizeCompany = (item: Record<string, unknown>): CompanyAdmin => ({
@@ -412,6 +360,9 @@ const normalizeVacancy = (item: Record<string, unknown>): VacancyAdmin => ({
   profession_name: safeString(item.profession_name) || null,
   status_name: safeString(item.status_name) || null,
   created_at: safeString(item.created_at) || null,
+  skills: Array.isArray(item.skills)
+    ? (item.skills as Array<{ id?: number; name?: string } | string>)
+    : [],
 })
 
 const normalizeApplication = (item: Record<string, unknown>): ApplicationAdmin => ({
@@ -606,108 +557,30 @@ const renderPrimitiveBadge = (value: boolean) => (
   </span>
 )
 
-const renderStructuredValue = (key: string, value: unknown): ReactNode => {
-  if (value === null || value === undefined || value === '') {
-    return <span className="admin-detail-empty">—</span>
-  }
+const renderEntityButton = (label: string, onClick: () => void) => (
+  <button type="button" className="admin-entity-link" onClick={onClick}>
+    {label}
+  </button>
+)
 
-  if (key === 'website' && typeof value === 'string') {
-    return (
-      <a href={value} target="_blank" rel="noreferrer" className="admin-detail-link">
-        {value}
-      </a>
-    )
-  }
+const renderSummaryField = (label: string, value: ReactNode) => (
+  <div className="admin-summary-item">
+    <span>{label}</span>
+    <div>{value}</div>
+  </div>
+)
 
-  if (
-    key.includes('created_at') ||
-    key.includes('updated_at') ||
-    key.includes('moderated_at') ||
-    key.includes('birth_date') ||
-    key === 'start_date' ||
-    key === 'end_date'
-  ) {
-    return <span>{formatDateTime(safeString(value) || null)}</span>
-  }
-
-  if (typeof value === 'boolean') {
-    return renderPrimitiveBadge(value)
-  }
-
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return <span className="admin-detail-empty">Пусто</span>
-    }
-
-    const isPrimitiveArray = value.every(
-      (item) =>
-        typeof item === 'string' ||
-        typeof item === 'number' ||
-        typeof item === 'boolean' ||
-        item === null,
-    )
-
-    if (isPrimitiveArray) {
-      return (
-        <div className="admin-chip-list">
-          {value.map((item, index) => (
-            <span key={`${String(item)}-${index}`} className="admin-chip">
-              {String(item)}
-            </span>
-          ))}
-        </div>
-      )
-    }
-
-    return (
-      <div className="admin-nested-stack">
-        {value.map((item, index) => (
-          <div key={index} className="admin-nested-card">
-            {typeof item === 'object' && item !== null ? (
-              Object.entries(item).map(([nestedKey, nestedValue]) => (
-                <div key={nestedKey} className="admin-nested-row">
-                  <span>{prettifyKey(nestedKey)}</span>
-                  <div>{renderStructuredValue(nestedKey, nestedValue)}</div>
-                </div>
-              ))
-            ) : (
-              <span>{String(item)}</span>
-            )}
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (typeof value === 'object') {
-    return (
-      <div className="admin-nested-card">
-        {Object.entries(value as Record<string, unknown>).map(([nestedKey, nestedValue]) => (
-          <div key={nestedKey} className="admin-nested-row">
-            <span>{prettifyKey(nestedKey)}</span>
-            <div>{renderStructuredValue(nestedKey, nestedValue)}</div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (key === 'status' && typeof value === 'string') {
-    return <span>{statusLabels[value] || value}</span>
-  }
-
-  if (key === 'role' && typeof value === 'string') {
-    if (value === 'admin') return 'Администратор'
-    if (value === 'company') return 'Работодатель'
-    if (value === 'applicant') return 'Соискатель'
-  }
-
-  if (key === 'gender' && typeof value === 'string') {
-    if (value === 'м') return 'Мужской'
-    if (value === 'ж') return 'Женский'
-  }
-
-  return <span>{String(value)}</span>
+const getVacancySkillNames = (value: unknown) => {
+  const items = toArray<unknown>(value)
+  return items
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object') {
+        return safeString((item as Record<string, unknown>).name)
+      }
+      return ''
+    })
+    .filter(Boolean)
 }
 
 export const AdminPage = () => {
@@ -738,6 +611,11 @@ export const AdminPage = () => {
 
   const [deleteAdminCurrentPassword, setDeleteAdminCurrentPassword] = useState('')
 
+  const [isSelfSettingsOpen, setIsSelfSettingsOpen] = useState(false)
+  const [selfEmail, setSelfEmail] = useState('')
+  const [selfNewPassword, setSelfNewPassword] = useState('')
+  const [selfCurrentPassword, setSelfCurrentPassword] = useState('')
+
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement
@@ -752,14 +630,18 @@ export const AdminPage = () => {
 
   useEffect(() => {
     const hasModal =
-      !!detailTarget || isCreateAdminOpen || !!editingAdmin || !!deletingAdmin
+      !!detailTarget ||
+      isCreateAdminOpen ||
+      !!editingAdmin ||
+      !!deletingAdmin ||
+      isSelfSettingsOpen
 
     document.body.style.overflow = hasModal ? 'hidden' : ''
 
     return () => {
       document.body.style.overflow = ''
     }
-  }, [detailTarget, isCreateAdminOpen, editingAdmin, deletingAdmin])
+  }, [detailTarget, isCreateAdminOpen, editingAdmin, deletingAdmin, isSelfSettingsOpen])
 
   const authMeQuery = useQuery({
     queryKey: ['admin-auth-me'],
@@ -1084,6 +966,62 @@ export const AdminPage = () => {
     },
   })
 
+  const updateSelfSettingsMutation = useMutation({
+    mutationFn: async () => {
+      if (!authMeQuery.data?.id) {
+        throw new Error('Не удалось определить текущего администратора')
+      }
+
+      const normalizedEmail = selfEmail.trim()
+      const currentEmail = authMeQuery.data.email || ''
+      const passwordChanged = selfNewPassword.trim().length > 0
+      const emailChanged = normalizedEmail !== currentEmail
+
+      if (!emailChanged && !passwordChanged) {
+        throw new Error('Нет изменений для сохранения')
+      }
+
+      if (!selfCurrentPassword.trim()) {
+        throw new Error('Введите текущий пароль')
+      }
+
+      if (passwordChanged && selfNewPassword.trim().length < 8) {
+        throw new Error('Новый пароль должен содержать минимум 8 символов')
+      }
+
+      await http.patch(`/admin/admins/${authMeQuery.data.id}`, {
+        email: normalizedEmail,
+        new_password: passwordChanged ? selfNewPassword.trim() : null,
+        is_active: authMeQuery.data.is_active ?? true,
+        current_admin_password: selfCurrentPassword,
+      })
+
+      return { passwordChanged }
+    },
+    onSuccess: async ({ passwordChanged }) => {
+      setMessage(
+        passwordChanged
+          ? 'Данные обновлены. После смены пароля нужно войти заново.'
+          : 'Данные администратора обновлены.',
+      )
+
+      setIsSelfSettingsOpen(false)
+      setSelfCurrentPassword('')
+      setSelfNewPassword('')
+
+      await queryClient.invalidateQueries({ queryKey: ['admin-auth-me'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-admins'] })
+
+      if (passwordChanged) {
+        authSession.clear()
+        navigate('/admin/login', { replace: true })
+      }
+    },
+    onError: (error) => {
+      setMessage(getErrorMessage(error, 'Не удалось обновить данные администратора.'))
+    },
+  })
+
   const filteredAdmins = useMemo(() => {
     const value = search.trim().toLowerCase()
     if (!value) return adminsQuery.data || []
@@ -1184,17 +1122,7 @@ export const AdminPage = () => {
     ...fallbackStats,
     ...(dashboardQuery.data || {}),
   }
-  const maskEmail = (email: string) => {
-    const [localPart = '', domain = ''] = email.split('@')
 
-    if (!domain) return email
-
-    const visible = localPart.slice(0, 3)
-    const maskedLength = Math.max(localPart.length - visible.length, 3)
-    const masked = '•'.repeat(maskedLength)
-
-    return `${visible}${masked}@${domain}`
-  }
   const selectedCatalogLabel = useMemo(() => {
     return catalogDefinitions.find((item) => item.key === selectedCatalog)?.label || 'Справочник'
   }, [selectedCatalog])
@@ -1228,6 +1156,542 @@ export const AdminPage = () => {
 
   const closeDetail = () => {
     setDetailTarget(null)
+  }
+
+  const openCompanyById = (companyId?: number | null) => {
+    if (!companyId) return
+    openDetail({ kind: 'company', id: companyId })
+  }
+
+  const openApplicantById = (applicantId?: number | null) => {
+    if (!applicantId) return
+    openDetail({ kind: 'applicant', id: applicantId })
+  }
+
+  const openVacancyById = (vacancyId?: number | null) => {
+    if (!vacancyId) return
+    openDetail({ kind: 'vacancy', id: vacancyId })
+  }
+
+  const openUserById = (userId?: number | null) => {
+    if (!userId) return
+    openDetail({ kind: 'user', id: userId })
+  }
+
+  const findCompanyByName = (name?: string | null) => {
+    const normalized = safeString(name).trim().toLowerCase()
+    if (!normalized) return null
+    return (companiesQuery.data || []).find(
+      (item) => item.name.trim().toLowerCase() === normalized,
+    )
+  }
+
+  const findApplicantByName = (name?: string | null) => {
+    const normalized = safeString(name).trim().toLowerCase()
+    if (!normalized) return null
+    return (applicantsQuery.data || []).find(
+      (item) => item.full_name.trim().toLowerCase() === normalized,
+    )
+  }
+
+  const renderAdminDetailContent = () => {
+    const data = (detailData || {}) as Record<string, unknown>
+
+    return (
+      <div className="admin-detail-layout">
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>{safeString(data.email) || `Администратор #${safeNumber(data.id) ?? 0}`}</h4>
+          </div>
+
+          <div className="admin-summary-grid">
+            {renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}
+            {renderSummaryField('Роль', <span>Администратор</span>)}
+            {renderSummaryField(
+              'Статус',
+              typeof data.is_active === 'boolean'
+                ? renderPrimitiveBadge(Boolean(data.is_active))
+                : <span>—</span>,
+            )}
+            {renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
+            {renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}
+          </div>
+        </section>
+      </div>
+    )
+  }
+
+  const renderUserDetailContent = () => {
+    const data = (detailData || {}) as Record<string, unknown>
+    const role = safeString(data.role)
+    const companyId = safeNumber(data.company_id)
+    const applicantId = safeNumber(data.applicant_id)
+    const companyName = safeString(data.company_name)
+    const applicantFullName = safeString(data.applicant_full_name)
+
+    return (
+      <div className="admin-detail-layout">
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>Основная информация</h4>
+          </div>
+
+          <div className="admin-summary-grid">
+            {renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}
+            {renderSummaryField(
+              'Роль',
+              <span>
+                {role === 'admin'
+                  ? 'Администратор'
+                  : role === 'company'
+                    ? 'Работодатель'
+                    : 'Соискатель'}
+              </span>,
+            )}
+            {renderSummaryField(
+              'Статус',
+              typeof data.is_active === 'boolean'
+                ? renderPrimitiveBadge(Boolean(data.is_active))
+                : <span>—</span>,
+            )}
+            {renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
+            {renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}
+            {renderSummaryField('Количество вакансий', <span>{safeString(data.vacancies_count) || '0'}</span>)}
+            {renderSummaryField('Количество резюме', <span>{safeString(data.resumes_count) || '0'}</span>)}
+            {renderSummaryField('Количество откликов', <span>{safeString(data.applications_count) || '0'}</span>)}
+          </div>
+        </section>
+
+        {role === 'company' ? (
+          <section className="admin-section">
+            <div className="admin-section__header">
+              <h4>Связанная компания</h4>
+            </div>
+
+            {companyId ? (
+              <div className="admin-section__body">
+                {renderEntityButton(companyName || `Компания #${companyId}`, () => openCompanyById(companyId))}
+              </div>
+            ) : (
+              <div className="admin-empty-inline">Компания не привязана</div>
+            )}
+          </section>
+        ) : null}
+
+        {role === 'applicant' ? (
+          <section className="admin-section">
+            <div className="admin-section__header">
+              <h4>Связанный соискатель</h4>
+            </div>
+
+            {applicantId ? (
+              <div className="admin-section__body">
+                {renderEntityButton(
+                  applicantFullName || `Соискатель #${applicantId}`,
+                  () => openApplicantById(applicantId),
+                )}
+              </div>
+            ) : (
+              <div className="admin-empty-inline">Соискатель не привязан</div>
+            )}
+          </section>
+        ) : null}
+      </div>
+    )
+  }
+
+  const renderCompanyDetailContent = () => {
+    const data = (detailData || {}) as Record<string, unknown>
+    const companyId = safeNumber(data.id) ?? 0
+    const linkedVacancies = (vacanciesQuery.data || []).filter((item) => item.company_id === companyId)
+
+    return (
+      <div className="admin-detail-layout">
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>{safeString(data.name) || `Компания #${companyId}`}</h4>
+          </div>
+
+          <div className="admin-summary-grid">
+            {renderSummaryField('Тип компании', <span>{safeString(data.company_type_name) || '—'}</span>)}
+            {renderSummaryField(
+              'Сайт',
+              safeString(data.website) ? (
+                <a href={safeString(data.website)} target="_blank" rel="noreferrer" className="admin-detail-link">
+                  {safeString(data.website)}
+                </a>
+              ) : (
+                <span>—</span>
+              ),
+            )}
+            {renderSummaryField(
+              'Статус',
+              typeof data.is_active === 'boolean'
+                ? renderPrimitiveBadge(Boolean(data.is_active))
+                : <span>—</span>,
+            )}
+            {renderSummaryField('Год основания', <span>{safeString(data.founded_year) || '—'}</span>)}
+            {renderSummaryField('Сотрудников', <span>{safeString(data.employee_count) || '—'}</span>)}
+            {renderSummaryField('Вакансий', <span>{safeString(data.vacancies_count) || '0'}</span>)}
+          </div>
+
+          {safeString(data.description) ? (
+            <div className="admin-description-box">{safeString(data.description)}</div>
+          ) : null}
+        </section>
+
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>Связанные данные</h4>
+          </div>
+
+          <div className="admin-summary-grid">
+            {renderSummaryField(
+              'Пользователь',
+              safeNumber(data.user_id) ? (
+                renderEntityButton(
+                  safeString(data.user_email) || `Пользователь #${safeNumber(data.user_id)}`,
+                  () => openUserById(safeNumber(data.user_id)),
+                )
+              ) : (
+                <span>—</span>
+              ),
+            )}
+
+            {renderSummaryField(
+              'Города',
+              toArray<string>(data.cities).length ? (
+                <div className="admin-chip-list">
+                  {toArray<string>(data.cities).map((city) => (
+                    <span key={city} className="admin-chip">{city}</span>
+                  ))}
+                </div>
+              ) : (
+                <span>—</span>
+              ),
+            )}
+          </div>
+        </section>
+
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>Вакансии компании</h4>
+          </div>
+
+          {linkedVacancies.length > 0 ? (
+            <div className="admin-linked-card-grid">
+              {linkedVacancies.map((vacancy) => (
+                <button
+                  key={vacancy.id}
+                  type="button"
+                  className="admin-linked-card"
+                  onClick={() => openVacancyById(vacancy.id)}
+                >
+                  <div className="admin-linked-card__title">{vacancy.title}</div>
+                  <div className="admin-linked-card__meta">
+                    <span>{vacancy.city_name || 'Город не указан'}</span>
+                    <span>{vacancy.status_name || 'Статус не указан'}</span>
+                  </div>
+                  <div className="admin-linked-card__text">
+                    {formatSalary(vacancy.salary_min, vacancy.salary_max, vacancy.currency || 'BYN')}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="admin-empty-inline">У компании пока нет вакансий</div>
+          )}
+        </section>
+      </div>
+    )
+  }
+
+  const renderApplicantDetailContent = () => {
+    const data = (detailData || {}) as Record<string, unknown>
+    const resumes = toArray<Record<string, unknown>>(data.resumes)
+    const educations = toArray<Record<string, unknown>>(data.educations)
+
+    const workExperienceCards = resumes.flatMap((resume) => {
+      const workExperiences = toArray<Record<string, unknown>>(resume.work_experiences)
+      const professionName = safeString(resume.profession_name) || `Резюме #${safeNumber(resume.id) ?? '—'}`
+      const count = safeNumber(resume.work_experiences_count) ?? 0
+
+      if (workExperiences.length > 0) {
+        return workExperiences.map((item, index) => ({
+          id: `${safeNumber(resume.id) ?? 'resume'}-${index}`,
+          title:
+            safeString(item.position) ||
+            safeString(item.job_title) ||
+            safeString(item.company_name) ||
+            'Опыт работы',
+          subtitle: safeString(item.company_name) || professionName,
+          period: [
+            safeString(item.start_date) ? formatDateTime(safeString(item.start_date)) : '',
+            safeString(item.end_date) ? formatDateTime(safeString(item.end_date)) : 'по настоящее время',
+          ]
+            .filter(Boolean)
+            .join(' — '),
+          description: safeString(item.description) || '',
+        }))
+      }
+
+      if (count > 0) {
+        return [
+          {
+            id: `resume-summary-${safeNumber(resume.id) ?? professionName}`,
+            title: professionName,
+            subtitle: 'Сводка по резюме',
+            period: '',
+            description: `Количество записей опыта работы: ${count}`,
+          },
+        ]
+      }
+
+      return []
+    })
+
+    return (
+      <div className="admin-detail-layout">
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>{safeString(data.full_name) || `Соискатель #${safeNumber(data.id) ?? 0}`}</h4>
+          </div>
+
+          <div className="admin-summary-grid">
+            {renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}
+            {renderSummaryField('Телефон', <span>{safeString(data.phone) || '—'}</span>)}
+            {renderSummaryField('Город', <span>{safeString(data.city_name) || '—'}</span>)}
+            {renderSummaryField(
+              'Пол',
+              <span>
+                {safeString(data.gender) === 'м'
+                  ? 'Мужской'
+                  : safeString(data.gender) === 'ж'
+                    ? 'Женский'
+                    : safeString(data.gender) || '—'}
+              </span>,
+            )}
+            {renderSummaryField('Дата рождения', <span>{formatDateTime(safeString(data.birth_date) || null)}</span>)}
+            {renderSummaryField(
+              'Статус',
+              typeof data.is_active === 'boolean'
+                ? renderPrimitiveBadge(Boolean(data.is_active))
+                : <span>—</span>,
+            )}
+            {renderSummaryField('Резюме', <span>{safeString(data.resumes_count) || '0'}</span>)}
+            {renderSummaryField('Образование', <span>{safeString(data.educations_count) || '0'}</span>)}
+            {renderSummaryField('Отклики', <span>{safeString(data.applications_count) || '0'}</span>)}
+          </div>
+        </section>
+
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>Резюме</h4>
+          </div>
+
+          {resumes.length > 0 ? (
+            <div className="admin-linked-card-grid">
+              {resumes.map((resume) => (
+                <div key={String(resume.id)} className="admin-linked-card admin-linked-card--static">
+                  <div className="admin-linked-card__title">
+                    {safeString(resume.profession_name) || `Резюме #${safeNumber(resume.id) ?? '—'}`}
+                  </div>
+
+                  <div className="admin-linked-card__meta">
+                    <span>Откликов: {safeString(resume.applications_count) || '0'}</span>
+                    <span>Опытов работы: {safeString(resume.work_experiences_count) || '0'}</span>
+                  </div>
+
+                  {toArray<string>(resume.skills).length > 0 ? (
+                    <div className="admin-chip-list">
+                      {toArray<string>(resume.skills).map((skill) => (
+                        <span key={skill} className="admin-chip">{skill}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="admin-empty-inline">Резюме не найдены</div>
+          )}
+        </section>
+
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>Образование</h4>
+          </div>
+
+          {educations.length > 0 ? (
+            <div className="admin-linked-card-grid">
+              {educations.map((education) => (
+                <div key={String(education.id)} className="admin-linked-card admin-linked-card--static">
+                  <div className="admin-linked-card__title">
+                    {safeString(education.institution_name) || `Образование #${safeNumber(education.id) ?? '—'}`}
+                  </div>
+                  <div className="admin-linked-card__meta">
+                    <span>{safeString(education.start_date) ? formatDateTime(safeString(education.start_date)) : '—'}</span>
+                    <span>{safeString(education.end_date) ? formatDateTime(safeString(education.end_date)) : '—'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="admin-empty-inline">Образование не указано</div>
+          )}
+        </section>
+
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>Опыт работы</h4>
+          </div>
+
+          {workExperienceCards.length > 0 ? (
+            <div className="admin-linked-card-grid">
+              {workExperienceCards.map((item) => (
+                <div key={item.id} className="admin-linked-card admin-linked-card--static">
+                  <div className="admin-linked-card__title">{item.title}</div>
+                  <div className="admin-linked-card__meta">
+                    <span>{item.subtitle}</span>
+                    {item.period ? <span>{item.period}</span> : null}
+                  </div>
+                  {item.description ? (
+                    <div className="admin-linked-card__text">{item.description}</div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="admin-empty-inline">Опыт работы не указан</div>
+          )}
+        </section>
+      </div>
+    )
+  }
+
+  const renderVacancyDetailContent = () => {
+    const data = (detailData || {}) as Record<string, unknown>
+    const companyId = safeNumber(data.company_id)
+    const skillNames = getVacancySkillNames(data.skills)
+
+    return (
+      <div className="admin-detail-layout">
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>{safeString(data.title) || `Вакансия #${safeNumber(data.id) ?? 0}`}</h4>
+          </div>
+
+          <div className="admin-summary-grid">
+            {renderSummaryField(
+              'Компания',
+              companyId ? (
+                renderEntityButton(
+                  safeString(data.company_name) || `Компания #${companyId}`,
+                  () => openCompanyById(companyId),
+                )
+              ) : (
+                <span>{safeString(data.company_name) || '—'}</span>
+              ),
+            )}
+            {renderSummaryField('Город', <span>{safeString(data.city_name) || '—'}</span>)}
+            {renderSummaryField('Профессия', <span>{safeString(data.profession_name) || '—'}</span>)}
+            {renderSummaryField('Статус', <span>{safeString(data.status_name) || '—'}</span>)}
+            {renderSummaryField(
+              'Зарплата',
+              <span>
+                {formatSalary(
+                  safeNumber(data.salary_min),
+                  safeNumber(data.salary_max),
+                  safeString(data.currency) || 'BYN',
+                )}
+              </span>,
+            )}
+            {renderSummaryField('Создана', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
+          </div>
+
+          {safeString(data.description) ? (
+            <div className="admin-description-box">{safeString(data.description)}</div>
+          ) : null}
+        </section>
+
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>Навыки</h4>
+          </div>
+
+          {skillNames.length > 0 ? (
+            <div className="admin-chip-list">
+              {skillNames.map((skill) => (
+                <span key={skill} className="admin-chip">{skill}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="admin-empty-inline">Навыки не указаны</div>
+          )}
+        </section>
+      </div>
+    )
+  }
+
+  const renderApplicationDetailContent = () => {
+    const data = (detailData || {}) as Record<string, unknown>
+    const matchedCompany = findCompanyByName(safeString(data.company_name))
+    const matchedApplicant = findApplicantByName(safeString(data.applicant_name))
+
+    return (
+      <div className="admin-detail-layout">
+        <section className="admin-section">
+          <div className="admin-section__header">
+            <h4>Информация об отклике</h4>
+          </div>
+
+          <div className="admin-summary-grid">
+            {renderSummaryField(
+              'Вакансия',
+              safeNumber(data.vacancy_id) ? (
+                renderEntityButton(
+                  safeString(data.vacancy_title) || `Вакансия #${safeNumber(data.vacancy_id)}`,
+                  () => openVacancyById(safeNumber(data.vacancy_id)),
+                )
+              ) : (
+                <span>{safeString(data.vacancy_title) || '—'}</span>
+              ),
+            )}
+
+            {renderSummaryField(
+              'Компания',
+              matchedCompany ? (
+                renderEntityButton(matchedCompany.name, () => openCompanyById(matchedCompany.id))
+              ) : (
+                <span>{safeString(data.company_name) || '—'}</span>
+              ),
+            )}
+
+            {renderSummaryField(
+              'Соискатель',
+              matchedApplicant ? (
+                renderEntityButton(matchedApplicant.full_name, () => openApplicantById(matchedApplicant.id))
+              ) : (
+                <span>{safeString(data.applicant_name) || '—'}</span>
+              ),
+            )}
+
+            {renderSummaryField('Профессия резюме', <span>{safeString(data.resume_profession) || '—'}</span>)}
+            {renderSummaryField('Город', <span>{safeString(data.city_name) || '—'}</span>)}
+            {renderSummaryField(
+              'Статус',
+              <span>{statusLabels[safeString(data.status)] || safeString(data.status) || '—'}</span>,
+            )}
+            {renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
+            {renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}
+            {renderSummaryField(
+              'Зарплата по вакансии',
+              <span>{formatSalary(safeNumber(data.salary_min), safeNumber(data.salary_max), 'BYN')}</span>,
+            )}
+          </div>
+        </section>
+      </div>
+    )
   }
 
   const renderDashboard = () => (
@@ -1292,7 +1756,11 @@ export const AdminPage = () => {
                     className="admin-action-btn"
                     onClick={() => {
                       setActiveTab(item.role === 'admin' ? 'admins' : 'users')
-                      openDetail(item.role === 'admin' ? { kind: 'admin', id: item.id } : { kind: 'user', id: item.id })
+                      openDetail(
+                        item.role === 'admin'
+                          ? { kind: 'admin', id: item.id }
+                          : { kind: 'user', id: item.id },
+                      )
                     }}
                   >
                     Подробнее
@@ -1886,27 +2354,27 @@ export const AdminPage = () => {
                 : `Отклик ${detailTarget.vacancyId}/${detailTarget.resumeId}`
 
     return (
-      <Modal title={title} subtitle="Подробная информация по выбранной сущности." onClose={closeDetail}>
+      <Modal
+        title={title}
+        subtitle="Подробная информация по выбранной сущности."
+        onClose={closeDetail}
+      >
         {detailLoading ? (
           <div className="admin-empty-inline">Загрузка...</div>
         ) : !detailData ? (
           <div className="admin-empty-inline">Не удалось загрузить данные.</div>
+        ) : detailTarget.kind === 'admin' ? (
+          renderAdminDetailContent()
+        ) : detailTarget.kind === 'user' ? (
+          renderUserDetailContent()
+        ) : detailTarget.kind === 'company' ? (
+          renderCompanyDetailContent()
+        ) : detailTarget.kind === 'applicant' ? (
+          renderApplicantDetailContent()
+        ) : detailTarget.kind === 'vacancy' ? (
+          renderVacancyDetailContent()
         ) : (
-          <div className="admin-detail-grid admin-detail-grid--modal">
-            {Object.entries(detailData).map(([key, value]) => (
-              <div
-                key={key}
-                className={`admin-detail-row ${
-                  Array.isArray(value) || (value && typeof value === 'object' && !Array.isArray(value))
-                    ? 'admin-detail-row--full'
-                    : ''
-                }`}
-              >
-                <span>{prettifyKey(key)}</span>
-                <div className="admin-detail-row__content">{renderStructuredValue(key, value)}</div>
-              </div>
-            ))}
-          </div>
+          renderApplicationDetailContent()
         )}
       </Modal>
     )
@@ -1927,9 +2395,6 @@ export const AdminPage = () => {
     <div className="admin-dashboard">
       <aside className="admin-sidebar">
         <div className="admin-sidebar__brand">
-          <div className="admin-sidebar__eyebrow">JobFinder</div>
-          <h1>Admin</h1>
-          <p>Панель управления платформой</p>
         </div>
 
         <div className="admin-sidebar__nav">
@@ -2010,8 +2475,21 @@ export const AdminPage = () => {
         <div className="admin-sidebar__footer">
           <div className="admin-sidebar__current-user">
             <span>Текущий админ</span>
-            <strong>{authMeQuery.data?.email || '—'}</strong>
+            <strong>{authMeQuery.data?.email ? maskEmail(authMeQuery.data.email) : '—'}</strong>
           </div>
+
+          <button
+            type="button"
+            className="admin-sidebar__settings"
+            onClick={() => {
+              setSelfEmail(authMeQuery.data?.email || '')
+              setSelfNewPassword('')
+              setSelfCurrentPassword('')
+              setIsSelfSettingsOpen(true)
+            }}
+          >
+            Изменить свои данные
+          </button>
 
           <button
             type="button"
@@ -2200,6 +2678,72 @@ export const AdminPage = () => {
               disabled={deleteAdminMutation.isPending || !deleteAdminCurrentPassword.trim()}
             >
               {deleteAdminMutation.isPending ? 'Удаляем...' : 'Удалить'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {isSelfSettingsOpen ? (
+        <Modal
+          title="Мои данные"
+          subtitle="Здесь можно изменить свой email и пароль."
+          onClose={() => setIsSelfSettingsOpen(false)}
+        >
+          <div className="admin-form-grid">
+            <label className="admin-field">
+              <span>Новый email</span>
+              <input
+                className="admin-input"
+                type="email"
+                value={selfEmail}
+                onChange={(e) => setSelfEmail(e.target.value)}
+                placeholder="Введите email"
+              />
+            </label>
+
+            <label className="admin-field">
+              <span>Новый пароль</span>
+              <input
+                className="admin-input"
+                type="password"
+                value={selfNewPassword}
+                onChange={(e) => setSelfNewPassword(e.target.value)}
+                placeholder="Оставь пустым, если не меняешь"
+              />
+            </label>
+
+            <label className="admin-field admin-field--full">
+              <span>Текущий пароль</span>
+              <input
+                className="admin-input"
+                type="password"
+                value={selfCurrentPassword}
+                onChange={(e) => setSelfCurrentPassword(e.target.value)}
+                placeholder="Подтверждение действия"
+              />
+            </label>
+          </div>
+
+          <div className="admin-modal__footer">
+            <button
+              type="button"
+              className="admin-ghost-btn"
+              onClick={() => setIsSelfSettingsOpen(false)}
+            >
+              Отмена
+            </button>
+
+            <button
+              type="button"
+              className="admin-primary-btn"
+              onClick={() => updateSelfSettingsMutation.mutate()}
+              disabled={
+                updateSelfSettingsMutation.isPending ||
+                !selfCurrentPassword.trim() ||
+                (selfNewPassword.trim().length > 0 && selfNewPassword.trim().length < 8)
+              }
+            >
+              {updateSelfSettingsMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
             </button>
           </div>
         </Modal>

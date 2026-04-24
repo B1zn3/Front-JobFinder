@@ -5,6 +5,18 @@ import { authSession, refreshAccessToken } from '../auth/session'
 
 type RetryableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean }
 
+const PUBLIC_AUTH_PATHS = ['/auth/login', '/auth/register', '/auth/refresh']
+
+const isPublicAuthUrl = (url?: string) => {
+  if (!url) return false
+  return PUBLIC_AUTH_PATHS.some((path) => url.includes(path))
+}
+
+export const publicHttp = axios.create({
+  baseURL: env.apiUrl,
+  withCredentials: true,
+})
+
 export const http = axios.create({
   baseURL: env.apiUrl,
   withCredentials: true,
@@ -19,6 +31,10 @@ const flushPendingQueue = (token: string | null) => {
 }
 
 http.interceptors.request.use((config) => {
+  if (isPublicAuthUrl(config.url)) {
+    return config
+  }
+
   const token = authSession.getAccessToken()
 
   if (token) {
@@ -34,7 +50,15 @@ http.interceptors.response.use(
     const originalRequest = error.config as RetryableRequestConfig | undefined
     const status = error.response?.status
 
-    if (!originalRequest || status !== 401 || originalRequest._retry) {
+    if (!originalRequest) {
+      return Promise.reject(error)
+    }
+
+    if (isPublicAuthUrl(originalRequest.url)) {
+      return Promise.reject(error)
+    }
+
+    if (status !== 401 || originalRequest._retry) {
       return Promise.reject(error)
     }
 

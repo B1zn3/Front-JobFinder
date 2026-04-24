@@ -713,3 +713,113 @@
     border-radius: 22px;
   }
 }
+
+.resume-editor-subcard .form-grid:last-child {
+  margin-bottom: 0;
+}
+
+.combo-field:disabled {
+  pointer-events: none;
+}
+
+.field input[type='tel'] {
+  letter-spacing: 0.01em;
+}
+
+.resume-editor-card:first-of-type {
+  overflow: hidden;
+}
+
+.resume-editor-hero__content {
+  min-width: 0;
+}
+
+.resume-editor-section {
+  overflow: visible;
+}
+
+.resume-editor-notice {
+  position: sticky;
+  top: 12px;
+  z-index: 80;
+  border: 1px solid transparent;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.resume-editor-notice--success {
+  border-color: rgba(23, 133, 92, 0.16);
+}
+
+.resume-editor-notice--error {
+  border-color: rgba(208, 87, 87, 0.18);
+}
+
+@media (max-width: 520px) {
+  .resume-editor-page__container {
+    padding: 0 12px;
+  }
+
+  .resume-editor-card {
+    padding: 20px 14px;
+    border-radius: 22px;
+  }
+
+  .resume-editor-subcard,
+  .education-card,
+  .experience-card {
+    padding: 18px 14px;
+    border-radius: 20px;
+  }
+
+  .resume-editor-hero__title {
+    font-size: 28px;
+  }
+
+  .resume-editor-section__title {
+    font-size: 24px;
+  }
+
+  .field input,
+  .field textarea,
+  .combo-input,
+  .combo-field {
+    min-height: 54px;
+    border-radius: 16px;
+    font-size: 15px;
+  }
+
+  .combo-field__value,
+  .combo-field__placeholder {
+    font-size: 15px;
+  }
+
+  .chip {
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+}
+
+.resume-editor-section .resume-editor-notice {
+  position: static;
+  top: auto;
+  z-index: auto;
+  margin: 0 0 22px;
+  box-shadow: none;
+}
+
+.resume-editor-card > .resume-editor-notice:last-child {
+  margin-bottom: 0;
+}
+
+.resume-editor-subcard .form-grid:last-child {
+  margin-bottom: 0;
+}
+
+.combo-field:disabled {
+  pointer-events: none;
+}
+
+.field input[type='tel'] {
+  letter-spacing: 0.01em;
+}

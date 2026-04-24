@@ -157,21 +157,25 @@ export const HomePage = () => {
   }, [categoriesQuery.data])
 
   const handleVacancyClick = (vacancyId: number) => {
-    navigate('/login', { state: { from: `/vacancies/${vacancyId}` } })
-  }
-
-  const handleCompanyClick = (companyId: number) => {
-    navigate(`/companies/${companyId}`)
-  }
+  navigate(`/vacancies/${vacancyId}`)
+}
+const handleVacanciesPageClick = () => {
+  navigate('/vacancies')
+}
+const handleCompaniesPageClick = () => {
+  navigate('/companies')
+}
+const handleCompanyClick = (companyId: number) => {
+  navigate(`/companies/${companyId}`)
+}
 
   const handleNavClick = (path: string) => {
     navigate('/vacancies', { state: { from: path } })
   }
 
   const handleCategoryClick = (categoryId: number) => {
-    navigate(`/vacancies?profession_id=${categoryId}`)
-  }
-
+  navigate(`/vacancies?profession_id=${categoryId}`)
+}
   return (
     <div className="home">
       <Header />
@@ -274,7 +278,7 @@ export const HomePage = () => {
           <div className="container">
             <div className="section-header">
               <h2 className="section-title">Свежие вакансии</h2>
-              <button className="link-more" onClick={() => handleNavClick('/vacancies')}>
+              <button className="link-more" onClick={handleVacanciesPageClick}>
                 Все вакансии →
               </button>
             </div>
@@ -360,7 +364,7 @@ export const HomePage = () => {
           <div className="container">
             <div className="section-header">
               <h2 className="section-title">Топ‑компании на платформе</h2>
-              <button className="link-more" onClick={() => handleNavClick('/companies')}>
+              <button className="link-more" onClick={handleCompaniesPageClick}>
                 Все компании →
               </button>
             </div>
@@ -391,38 +395,43 @@ export const HomePage = () => {
             )}
 
             {companiesQuery.isSuccess && companiesQuery.data.length > 0 && (
-              <div className="companies-grid">
-                {companiesQuery.data.map((company) => (
-                  <div
-                    key={company.id}
-                    className="company-card"
-                    onClick={() => handleCompanyClick(company.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => e.key === 'Enter' && handleCompanyClick(company.id)}
-                  >
-                    <div className="company-card__logo-wrapper">
-                      <CompanyLogo src={company.logo} name={company.name} />
-                    </div>
-                    <h3 className="company-card__name">{company.name}</h3>
-                    <div className="company-card__details">
-                      {company.founded_year && <span>с {company.founded_year}</span>}
-                      {company.employee_count && <span>{company.employee_count} чел.</span>}
-                    </div>
-                    {company.description && (
-                      <p className="company-card__description">
-                        {company.description.length > 70
-                          ? company.description.slice(0, 70) + '…'
-                          : company.description}
-                      </p>
-                    )}
-                    <span className="company-card__vacancies">
-                      {formatVacanciesCount(company.vacancies_count)}
-                    </span>
+          <div className="companies-grid">
+            {companiesQuery.data.map((company) => (
+              <article
+                key={company.id}
+                className="company-card"
+                onClick={() => handleCompanyClick(company.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && handleCompanyClick(company.id)}
+              >
+                <div className="company-card__top">
+                  <div className="company-card__logo-wrapper">
+                    <CompanyLogo src={company.logo} name={company.name} />
                   </div>
-                ))}
-              </div>
-            )}
+
+                  <div className="company-card__identity">
+                    <h3 className="company-card__name">{company.name}</h3>
+                  </div>
+                </div>
+
+                {company.description && (
+                  <p className="company-card__description">
+                    {company.description.length > 96
+                      ? `${company.description.slice(0, 96)}…`
+                      : company.description}
+                  </p>
+                )}
+
+                <div className="company-card__footer">
+                  <span className="company-card__vacancies">
+                    {formatVacanciesCount(company.vacancies_count)}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
           </div>
         </section>
 

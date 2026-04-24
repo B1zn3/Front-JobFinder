@@ -1,7 +1,7 @@
+import type { AxiosError } from 'axios'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import axios from 'axios'
 import { Header } from '../../shared/ui/Header'
 import { Footer } from '../../shared/ui/Footer'
 import { http } from '../../shared/api/http'
@@ -60,7 +60,11 @@ type WorkExperienceItem = {
 type EducationItem = {
   id: number
   institution_id: number
-  institution_name: string
+  institution_name?: string | null
+  institution?: {
+    id: number
+    name: string
+  } | null
   start_date: string
   end_date?: string | null
 }
@@ -89,6 +93,10 @@ type NoticeState = {
   text: string
 } | null
 
+type NoticeSection = 'hero' | 'resume' | 'profile' | 'skills' | 'experience' | 'education'
+
+type SectionNotices = Partial<Record<NoticeSection, NoticeState>>
+
 type GenderValue = 'м' | 'ж' | ''
 
 type EducationDraft = {
@@ -115,6 +123,18 @@ type WorkExperienceDraft = {
   description: string
 }
 
+type ApiValidationItem = {
+  loc?: Array<string | number>
+  msg?: string
+  type?: string
+}
+
+type ApiErrorResponse = {
+  detail?: string | { message?: string; error?: string } | ApiValidationItem[]
+  message?: string
+  error?: string
+}
+
 const monthOptions: ComboOption[] = [
   { value: '01', label: 'Январь' },
   { value: '02', label: 'Февраль' },
@@ -130,13 +150,15 @@ const monthOptions: ComboOption[] = [
   { value: '12', label: 'Декабрь' },
 ]
 
-const dayOptions: ComboOption[] = Array.from({ length: 31 }, (_, index) => {
-  const value = String(index + 1).padStart(2, '0')
-  return { value, label: String(index + 1) }
+const currentYear = new Date().getFullYear()
+
+const birthYearOptions: ComboOption[] = Array.from({ length: 81 }, (_, index) => {
+  const year = String(currentYear - index)
+  return { value: year, label: year }
 })
 
-const yearOptions: ComboOption[] = Array.from({ length: 70 }, (_, index) => {
-  const year = String(new Date().getFullYear() - index)
+const resumeYearOptions: ComboOption[] = Array.from({ length: 61 }, (_, index) => {
+  const year = String(currentYear - index)
   return { value: year, label: year }
 })
 
@@ -145,42 +167,240 @@ const genderOptions: ComboOption[] = [
   { value: 'ж', label: 'Женский' },
 ]
 
+const phoneRegex = /^\+?[1-9]\d{8,14}$/
+
 const makeLocalId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 const toArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? value : [])
 
-const formatDateTime = (value?: string | null) => {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString('ru-RU')
+const normalizePhone = (value: string) => {
+  return value.replace(/[()\-\s]/g, '').trim()
+}
+
+const uniqueMessages = (messages: string[]) => Array.from(new Set(messages.filter(Boolean)))
+
+const translateApiErrorMessage = (message: string, status?: number) => {
+  const lower = message.toLowerCase()
+
+  if (
+    lower.includes('applicants_phone_key') ||
+    lower.includes('key (phone)') ||
+    lower.includes('phone already') ||
+    lower.includes('phone exists') ||
+    lower.includes('телефон уже') ||
+    lower.includes('номер уже')
+  ) {
+    return 'Телефон уже используется другим аккаунтом.'
+  }
+
+  if (
+    lower.includes('users_email_key') ||
+    lower.includes('key (email)') ||
+    lower.includes('email already') ||
+    lower.includes('email exists') ||
+    lower.includes('email уже') ||
+    lower.includes('почта уже')
+  ) {
+    return 'Email уже используется другим аккаунтом.'
+  }
+
+  if (
+    lower.includes('invalid profession') ||
+    lower.includes('profession_id') ||
+    lower.includes('профессия')
+  ) {
+    return 'Выберите профессию из списка.'
+  }
+
+  if (lower.includes('institution') || lower.includes('учебное заведение')) {
+    return 'Выберите учебное заведение из списка.'
+  }
+
+  if (lower.includes('city') || lower.includes('город')) {
+    return 'Выберите город из списка.'
+  }
+
+  if (lower.includes('phone') && (lower.includes('invalid') || lower.includes('некоррект'))) {
+    return 'Введите телефон в формате +375291234567.'
+  }
+
+  if (lower.includes('field required')) {
+    return 'Заполните обязательные поля.'
+  }
+
+  if (lower.includes('not authenticated') || lower.includes('unauthorized')) {
+    return 'Сессия истекла. Войдите в аккаунт заново.'
+  }
+
+  if (lower.includes('forbidden') || lower.includes('доступ запрещ')) {
+    return 'Недостаточно прав для выполнения действия.'
+  }
+
+  if (status === 400) return message || 'Некорректные данные.'
+  if (status === 401) return 'Сессия истекла. Войдите в аккаунт заново.'
+  if (status === 403) return 'Недостаточно прав для выполнения действия.'
+  if (status === 404) return 'Данные не найдены.'
+  if (status === 409) return message || 'Такие данные уже используются.'
+  if (status === 422) return message || 'Проверьте корректность введённых данных.'
+  if (status === 429) return 'Слишком много попыток. Попробуйте позже.'
+  if (status && status >= 500) return 'Ошибка сервера. Попробуйте позже.'
+
+  if (message.length > 220) {
+    return 'Не удалось выполнить действие. Проверьте данные и попробуйте снова.'
+  }
+
+  return message || 'Не удалось выполнить действие.'
 }
 
 const getErrorMessage = (error: unknown, fallback: string) => {
-  if (axios.isAxiosError(error)) {
-    const detail = error.response?.data as
-      | { detail?: string | { message?: string } | Array<{ msg?: string }> }
-      | undefined
+  const axiosError = error as AxiosError<ApiErrorResponse>
+  const status = axiosError.response?.status
+  const data = axiosError.response?.data
 
-    if (typeof detail?.detail === 'string') return detail.detail
-    if (Array.isArray(detail?.detail) && detail.detail[0]?.msg) return detail.detail[0].msg || fallback
-    if (error.message) return error.message
+  if (axiosError.response) {
+    if (Array.isArray(data?.detail)) {
+      const messages = uniqueMessages(
+        data.detail.map((item) => translateApiErrorMessage(item.msg || '', status)),
+      )
+
+      return messages[0] || fallback
+    }
+
+    if (typeof data?.detail === 'string') {
+      return translateApiErrorMessage(data.detail, status)
+    }
+
+    if (data?.detail && typeof data.detail === 'object' && !Array.isArray(data.detail)) {
+      const message = data.detail.message || data.detail.error
+      if (message) return translateApiErrorMessage(message, status)
+    }
+
+    if (data?.message) return translateApiErrorMessage(data.message, status)
+    if (data?.error) return translateApiErrorMessage(data.error, status)
+
+    switch (status) {
+      case 400:
+        return 'Некорректные данные. Проверьте форму.'
+      case 401:
+        return 'Сессия истекла. Войдите в аккаунт заново.'
+      case 403:
+        return 'Недостаточно прав для выполнения действия.'
+      case 404:
+        return 'Данные не найдены.'
+      case 409:
+        return 'Такие данные уже используются.'
+      case 422:
+        return 'Проверьте корректность введённых данных.'
+      case 429:
+        return 'Слишком много попыток. Попробуйте позже.'
+      default:
+        return status && status >= 500 ? 'Ошибка сервера. Попробуйте позже.' : fallback
+    }
   }
 
-  if (error instanceof Error && error.message) return error.message
+  if (axiosError.request) {
+    return 'Нет соединения с сервером. Проверьте интернет или попробуйте позже.'
+  }
+
+  if (error instanceof Error && error.message) {
+    return translateApiErrorMessage(error.message)
+  }
+
   return fallback
+}
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) return '—'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+
+  return date.toLocaleString('ru-RU')
+}
+
+const getDaysInMonth = (year: string, month: string) => {
+  if (!month) return 31
+
+  const parsedYear = year ? Number(year) : 2000
+  const parsedMonth = Number(month)
+
+  if (!Number.isFinite(parsedYear) || !Number.isFinite(parsedMonth)) return 31
+
+  return new Date(parsedYear, parsedMonth, 0).getDate()
+}
+
+const makeDayOptions = (year: string, month: string): ComboOption[] => {
+  const daysCount = getDaysInMonth(year, month)
+
+  return Array.from({ length: daysCount }, (_, index) => {
+    const day = String(index + 1).padStart(2, '0')
+    return { value: day, label: day }
+  })
+}
+
+const isRealDate = (day: string, month: string, year: string) => {
+  const parsedDay = Number(day)
+  const parsedMonth = Number(month)
+  const parsedYear = Number(year)
+
+  if (
+    !Number.isInteger(parsedDay) ||
+    !Number.isInteger(parsedMonth) ||
+    !Number.isInteger(parsedYear)
+  ) {
+    return false
+  }
+
+  const date = new Date(parsedYear, parsedMonth - 1, parsedDay)
+
+  return (
+    date.getFullYear() === parsedYear &&
+    date.getMonth() === parsedMonth - 1 &&
+    date.getDate() === parsedDay
+  )
+}
+
+const getStartOfDay = (date: Date) => {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+const validateBirthDate = (day: string, month: string, year: string) => {
+  if (!day || !month || !year) {
+    return 'Укажите дату рождения полностью.'
+  }
+
+  if (!isRealDate(day, month, year)) {
+    return 'Такой даты рождения не существует.'
+  }
+
+  const today = getStartOfDay(new Date())
+  const minDate = new Date(today)
+  minDate.setFullYear(today.getFullYear() - 80)
+
+  const birthDate = new Date(Number(year), Number(month) - 1, Number(day))
+
+  if (birthDate > today) {
+    return 'Дата рождения не может быть в будущем.'
+  }
+
+  if (birthDate < minDate) {
+    return 'Дата рождения должна быть в пределах последних 80 лет.'
+  }
+
+  return ''
 }
 
 const parseBirthDateParts = (birthDate?: string | null) => {
   if (!birthDate) return { day: '', month: '', year: '' }
 
-  const raw = String(birthDate).slice(0, 10)
-  const [year, month, day] = raw.split('-')
+  const match = String(birthDate).match(/^(\d{4})-(\d{2})-(\d{2})/)
+
+  if (!match) return { day: '', month: '', year: '' }
 
   return {
-    day: day || '',
-    month: month || '',
-    year: year || '',
+    year: match[1],
+    month: match[2],
+    day: match[3],
   }
 }
 
@@ -206,6 +426,23 @@ const buildMonthYearDate = (month: string, year: string) => {
   return `${year}-${month}-01`
 }
 
+const monthYearToNumber = (month: string, year: string) => {
+  if (!month || !year) return null
+
+  const parsed = Number(`${year}${month}`)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const isMonthYearInFuture = (month: string, year: string) => {
+  const value = monthYearToNumber(month, year)
+  if (!value) return false
+
+  const now = new Date()
+  const currentValue = Number(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`)
+
+  return value > currentValue
+}
+
 const fetchApplicantProfile = async (): Promise<ApplicantProfile> => {
   const { data } = await http.get('/applicants/me')
   return data
@@ -220,6 +457,7 @@ const fetchCatalog = async <T,>(catalogName: string): Promise<T[]> => {
   const { data } = await http.get(`/public/catalogs/${catalogName}`, {
     params: { skip: 0, limit: 100 },
   })
+
   return Array.isArray(data) ? data : []
 }
 
@@ -227,6 +465,7 @@ const fetchProfessions = async (): Promise<ProfessionItem[]> => {
   const { data } = await http.get('/public/professions', {
     params: { skip: 0, limit: 100 },
   })
+
   return Array.isArray(data) ? data : []
 }
 
@@ -289,7 +528,6 @@ const deleteEducation = async (educationId: number) => {
 const addWorkExperience = async (
   resumeId: number,
   payload: {
-    resume_id: number
     company_name: string
     position: string
     start_date: string
@@ -316,6 +554,7 @@ const updateWorkExperience = async (
     `/applicants/me/resumes/${resumeId}/work-experiences/${experienceId}`,
     payload,
   )
+
   return data
 }
 
@@ -372,7 +611,7 @@ const SearchCombo = ({
         placeholder={placeholder}
         autoComplete="off"
         onFocus={onFocus}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
       />
 
       {isOpen && (
@@ -382,8 +621,10 @@ const SearchCombo = ({
               <button
                 key={String(option.value)}
                 type="button"
-                className={`combo__option ${activeValue === option.value ? 'is-active' : ''}`}
-                onMouseDown={(e) => e.preventDefault()}
+                className={`combo__option ${
+                  String(activeValue) === String(option.value) ? 'is-active' : ''
+                }`}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onSelect(option)}
               >
                 {option.label}
@@ -403,7 +644,9 @@ type SelectComboProps = {
   placeholder: string
   isOpen: boolean
   options: ComboOption[]
+  activeValue?: string | number | null
   disabled?: boolean
+  emptyText?: string
   onToggle: () => void
   onSelect: (option: ComboOption) => void
 }
@@ -413,7 +656,9 @@ const SelectCombo = ({
   placeholder,
   isOpen,
   options,
+  activeValue,
   disabled = false,
+  emptyText = 'Нет вариантов',
   onToggle,
   onSelect,
 }: SelectComboProps) => {
@@ -424,30 +669,52 @@ const SelectCombo = ({
         className={`combo-field ${isOpen ? 'is-open' : ''}`}
         onClick={onToggle}
         disabled={disabled}
+        aria-expanded={isOpen}
       >
         <span className={value ? 'combo-field__value' : 'combo-field__placeholder'}>
           {value || placeholder}
         </span>
+
         <ChevronIcon open={isOpen} />
       </button>
 
       {isOpen && !disabled && (
         <div className="combo__dropdown">
-          {options.map((option) => (
-            <button
-              key={String(option.value)}
-              type="button"
-              className={`combo__option ${
-                value === option.label || value === String(option.value) ? 'is-active' : ''
-              }`}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onSelect(option)}
-            >
-              {option.label}
-            </button>
-          ))}
+          {options.length > 0 ? (
+            options.map((option) => (
+              <button
+                key={String(option.value)}
+                type="button"
+                className={`combo__option ${
+                  String(activeValue) === String(option.value) ? 'is-active' : ''
+                }`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onSelect(option)}
+              >
+                {option.label}
+              </button>
+            ))
+          ) : (
+            <div className="combo__empty">{emptyText}</div>
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+const SectionNotice = ({ notice }: { notice: NoticeState }) => {
+  if (!notice) return null
+
+  return (
+    <div
+      className={`resume-editor-notice ${
+        notice.type === 'success'
+          ? 'resume-editor-notice--success'
+          : 'resume-editor-notice--error'
+      }`}
+    >
+      {notice.text}
     </div>
   )
 }
@@ -459,8 +726,8 @@ const createEducationDraft = (item?: EducationItem): EducationDraft => {
   return {
     localId: makeLocalId(),
     id: item?.id,
-    institution_id: item?.institution_id,
-    institution_name: item?.institution_name ?? '',
+    institution_id: item?.institution_id ?? item?.institution?.id,
+    institution_name: item?.institution_name || item?.institution?.name || '',
     start_month: start.month,
     start_year: start.year,
     end_month: end.month,
@@ -493,7 +760,7 @@ export const ResumeDetailsPage = () => {
 
   const numericResumeId = Number(resumeId)
 
-  const [notice, setNotice] = useState<NoticeState>(null)
+  const [notices, setNotices] = useState<SectionNotices>({})
   const [openCombo, setOpenCombo] = useState<string | null>(null)
 
   const [professionSearch, setProfessionSearch] = useState('')
@@ -507,7 +774,7 @@ export const ResumeDetailsPage = () => {
   const [gender, setGender] = useState<GenderValue>('')
 
   const [cityId, setCityId] = useState<number | null>(null)
-  const [citySearch, setCitySearch] = useState('')
+  const [cityName, setCityName] = useState('')
 
   const [birthDay, setBirthDay] = useState('')
   const [birthMonth, setBirthMonth] = useState('')
@@ -521,6 +788,7 @@ export const ResumeDetailsPage = () => {
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement
+
       if (!target.closest('.combo')) {
         setOpenCombo(null)
       }
@@ -529,6 +797,16 @@ export const ResumeDetailsPage = () => {
     document.addEventListener('click', handleDocumentClick)
     return () => document.removeEventListener('click', handleDocumentClick)
   }, [])
+
+  useEffect(() => {
+    if (!birthDay) return
+
+    const maxDay = getDaysInMonth(birthYear, birthMonth)
+
+    if (Number(birthDay) > maxDay) {
+      setBirthDay('')
+    }
+  }, [birthDay, birthMonth, birthYear])
 
   const applicantQuery = useQuery({
     queryKey: ['applicant-profile', numericResumeId],
@@ -597,7 +875,7 @@ export const ResumeDetailsPage = () => {
     }
 
     setCityId(profile.city?.id ?? null)
-    setCitySearch(profile.city?.name || '')
+    setCityName(profile.city?.name || '')
     setEducations(toArray<EducationItem>(profile.educations).map(createEducationDraft))
   }, [applicantQuery.data])
 
@@ -618,27 +896,28 @@ export const ResumeDetailsPage = () => {
   const educationInstitutions = educationInstitutionsQuery.data || []
   const currentResume = resumeQuery.data
 
+  const birthDayOptions = useMemo(() => {
+    return makeDayOptions(birthYear, birthMonth)
+  }, [birthMonth, birthYear])
+
+  const cityOptions: ComboOption[] = useMemo(() => {
+    return cities.map((item) => ({
+      value: item.id,
+      label: item.name,
+    }))
+  }, [cities])
+
   const filteredProfessions: ComboOption[] = useMemo(() => {
     const value = professionSearch.trim().toLowerCase()
     const base = value
       ? professions.filter((item) => item.name.toLowerCase().includes(value))
       : professions
 
-    return base.slice(0, 20).map((item) => ({
+    return base.slice(0, 30).map((item) => ({
       value: item.id,
       label: item.name,
     }))
   }, [professionSearch, professions])
-
-  const filteredCities: ComboOption[] = useMemo(() => {
-    const value = citySearch.trim().toLowerCase()
-    const base = value ? cities.filter((item) => item.name.toLowerCase().includes(value)) : cities
-
-    return base.slice(0, 25).map((item) => ({
-      value: item.id,
-      label: item.name,
-    }))
-  }, [citySearch, cities])
 
   const filteredSkills: ComboOption[] = useMemo(() => {
     const value = skillSearch.trim().toLowerCase()
@@ -648,7 +927,7 @@ export const ResumeDetailsPage = () => {
 
     return base
       .filter((item) => !selectedIds.has(item.id))
-      .slice(0, 25)
+      .slice(0, 30)
       .map((item) => ({
         value: item.id,
         label: item.name,
@@ -695,7 +974,6 @@ export const ResumeDetailsPage = () => {
 
   const addWorkExperienceMutation = useMutation({
     mutationFn: (payload: {
-      resume_id: number
       company_name: string
       position: string
       start_date: string
@@ -728,8 +1006,26 @@ export const ResumeDetailsPage = () => {
     mutationFn: () => deleteResume(numericResumeId),
   })
 
-  const setSuccess = (text: string) => setNotice({ type: 'success', text })
-  const setError = (text: string) => setNotice({ type: 'error', text })
+  const clearNotice = (section: NoticeSection) => {
+    setNotices((prev) => ({
+      ...prev,
+      [section]: null,
+    }))
+  }
+
+  const setSuccess = (section: NoticeSection, text: string) => {
+    setNotices((prev) => ({
+      ...prev,
+      [section]: { type: 'success', text },
+    }))
+  }
+
+  const setError = (section: NoticeSection, text: string) => {
+    setNotices((prev) => ({
+      ...prev,
+      [section]: { type: 'error', text },
+    }))
+  }
 
   const addEducationRow = () => {
     setEducations((prev) => [...prev, createEducationDraft()])
@@ -777,18 +1073,28 @@ export const ResumeDetailsPage = () => {
   }
 
   const validateResume = () => {
-    if (!selectedProfessionId) return 'Выберите профессию.'
+    if (!selectedProfessionId) return 'Выберите профессию из списка.'
     return ''
   }
 
   const validateProfile = () => {
     if (!lastName.trim()) return 'Укажите фамилию.'
     if (!firstName.trim()) return 'Укажите имя.'
-    if (!citySearch.trim()) return 'Укажите город проживания.'
-    if (!cityId) return 'Выберите город из списка.'
-    if (!phone.trim()) return 'Укажите номер телефона.'
     if (!gender) return 'Выберите пол.'
-    if (!birthDay || !birthMonth || !birthYear) return 'Укажите дату рождения.'
+    if (!cityId) return 'Выберите город проживания из списка.'
+
+    const normalizedPhone = normalizePhone(phone)
+    if (!normalizedPhone) return 'Укажите номер телефона.'
+    if (!phoneRegex.test(normalizedPhone)) return 'Введите телефон в формате +375291234567.'
+
+    const birthError = validateBirthDate(birthDay, birthMonth, birthYear)
+    if (birthError) return birthError
+
+    return ''
+  }
+
+  const validateSkills = () => {
+    if (selectedSkills.length === 0) return 'Добавьте хотя бы один навык.'
     return ''
   }
 
@@ -807,10 +1113,20 @@ export const ResumeDetailsPage = () => {
       if (!item.start_month || !item.start_year) return 'Укажите дату начала обучения.'
       if (!item.end_month || !item.end_year) return 'Укажите дату окончания обучения.'
 
-      const start = Number(`${item.start_year}${item.start_month}`)
-      const end = Number(`${item.end_year}${item.end_month}`)
+      if (isMonthYearInFuture(item.start_month, item.start_year)) {
+        return 'Дата начала обучения не может быть в будущем.'
+      }
 
-      if (start > end) return 'Дата окончания обучения не может быть раньше даты начала.'
+      if (isMonthYearInFuture(item.end_month, item.end_year)) {
+        return 'Дата окончания обучения не может быть в будущем.'
+      }
+
+      const start = monthYearToNumber(item.start_month, item.start_year)
+      const end = monthYearToNumber(item.end_month, item.end_year)
+
+      if (start && end && start > end) {
+        return 'Дата окончания обучения не может быть раньше даты начала.'
+      }
     }
 
     return ''
@@ -832,15 +1148,32 @@ export const ResumeDetailsPage = () => {
       if (!item.company_name.trim()) return 'Укажите компанию.'
       if (!item.position.trim()) return 'Укажите должность.'
       if (!item.start_month || !item.start_year) return 'Укажите дату начала работы.'
+
+      if (isMonthYearInFuture(item.start_month, item.start_year)) {
+        return 'Дата начала работы не может быть в будущем.'
+      }
+
       if (!item.is_current && (!item.end_month || !item.end_year)) {
         return 'Укажите дату окончания работы или отметьте «Работаю сейчас».'
       }
+
       if (!item.description.trim()) return 'Добавьте описание опыта работы.'
 
+      if (item.description.trim().length < 10) {
+        return 'Описание опыта работы слишком короткое.'
+      }
+
       if (!item.is_current) {
-        const start = Number(`${item.start_year}${item.start_month}`)
-        const end = Number(`${item.end_year}${item.end_month}`)
-        if (start > end) return 'Дата окончания работы не может быть раньше даты начала.'
+        if (isMonthYearInFuture(item.end_month, item.end_year)) {
+          return 'Дата окончания работы не может быть в будущем.'
+        }
+
+        const start = monthYearToNumber(item.start_month, item.start_year)
+        const end = monthYearToNumber(item.end_month, item.end_year)
+
+        if (start && end && start > end) {
+          return 'Дата окончания работы не может быть раньше даты начала.'
+        }
       }
     }
 
@@ -848,10 +1181,11 @@ export const ResumeDetailsPage = () => {
   }
 
   const handleSaveResume = async () => {
-    setNotice(null)
+    clearNotice('resume')
+
     const error = validateResume()
     if (error) {
-      setError(error)
+      setError('resume', error)
       return
     }
 
@@ -862,17 +1196,19 @@ export const ResumeDetailsPage = () => {
 
       await queryClient.invalidateQueries({ queryKey: ['applicant-resume', numericResumeId] })
       await queryClient.invalidateQueries({ queryKey: ['applicant-resumes'] })
-      setSuccess('Резюме сохранено.')
+
+      setSuccess('resume', 'Резюме сохранено.')
     } catch (err) {
-      setError(getErrorMessage(err, 'Не удалось сохранить резюме.'))
+      setError('resume', getErrorMessage(err, 'Не удалось сохранить резюме.'))
     }
   }
 
   const handleSaveProfile = async () => {
-    setNotice(null)
+    clearNotice('profile')
+
     const error = validateProfile()
     if (error) {
-      setError(error)
+      setError('profile', error)
       return
     }
 
@@ -881,21 +1217,30 @@ export const ResumeDetailsPage = () => {
         last_name: lastName.trim(),
         first_name: firstName.trim(),
         middle_name: middleName.trim() || null,
-        phone: phone.trim(),
+        phone: normalizePhone(phone),
         gender,
-        city_name: citySearch.trim(),
+        city_id: cityId,
         birth_date: buildBirthDate(birthDay, birthMonth, birthYear),
       })
 
+      setPhone(normalizePhone(phone))
+
       await queryClient.invalidateQueries({ queryKey: ['applicant-profile', numericResumeId] })
-      setSuccess('Профиль соискателя сохранён.')
+
+      setSuccess('profile', 'Профиль соискателя сохранён.')
     } catch (err) {
-      setError(getErrorMessage(err, 'Не удалось сохранить профиль.'))
+      setError('profile', getErrorMessage(err, 'Не удалось сохранить профиль.'))
     }
   }
 
   const handleSaveSkills = async () => {
-    setNotice(null)
+    clearNotice('skills')
+
+    const error = validateSkills()
+    if (error) {
+      setError('skills', error)
+      return
+    }
 
     try {
       const currentSkills = toArray<ResumeSkill>(currentResume?.skills)
@@ -916,17 +1261,19 @@ export const ResumeDetailsPage = () => {
       }
 
       await queryClient.invalidateQueries({ queryKey: ['applicant-resume', numericResumeId] })
-      setSuccess('Навыки сохранены.')
+
+      setSuccess('skills', 'Навыки сохранены.')
     } catch (err) {
-      setError(getErrorMessage(err, 'Не удалось сохранить навыки.'))
+      setError('skills', getErrorMessage(err, 'Не удалось сохранить навыки.'))
     }
   }
 
   const handleSaveEducations = async () => {
-    setNotice(null)
+    clearNotice('education')
+
     const error = validateEducationSection()
     if (error) {
-      setError(error)
+      setError('education', error)
       return
     }
 
@@ -960,14 +1307,15 @@ export const ResumeDetailsPage = () => {
       }
 
       await queryClient.invalidateQueries({ queryKey: ['applicant-profile', numericResumeId] })
-      setSuccess('Образование сохранено.')
+
+      setSuccess('education', 'Образование сохранено.')
     } catch (err) {
-      setError(getErrorMessage(err, 'Не удалось сохранить образование.'))
+      setError('education', getErrorMessage(err, 'Не удалось сохранить образование.'))
     }
   }
 
   const handleDeleteEducation = async (item: EducationDraft) => {
-    setNotice(null)
+    clearNotice('education')
 
     if (!item.id) {
       removeEducationRowLocal(item.localId)
@@ -977,18 +1325,21 @@ export const ResumeDetailsPage = () => {
     try {
       await deleteEducationMutation.mutateAsync(item.id)
       removeEducationRowLocal(item.localId)
+
       await queryClient.invalidateQueries({ queryKey: ['applicant-profile', numericResumeId] })
-      setSuccess('Образование удалено.')
+
+      setSuccess('education', 'Образование удалено.')
     } catch (err) {
-      setError(getErrorMessage(err, 'Не удалось удалить образование.'))
+      setError('education', getErrorMessage(err, 'Не удалось удалить образование.'))
     }
   }
 
   const handleSaveExperiences = async () => {
-    setNotice(null)
+    clearNotice('experience')
+
     const error = validateExperienceSection()
     if (error) {
-      setError(error)
+      setError('experience', error)
       return
     }
 
@@ -1019,22 +1370,20 @@ export const ResumeDetailsPage = () => {
             payload,
           })
         } else {
-          await addWorkExperienceMutation.mutateAsync({
-            resume_id: numericResumeId,
-            ...payload,
-          })
+          await addWorkExperienceMutation.mutateAsync(payload)
         }
       }
 
       await queryClient.invalidateQueries({ queryKey: ['applicant-resume', numericResumeId] })
-      setSuccess('Опыт работы сохранён.')
+
+      setSuccess('experience', 'Опыт работы сохранён.')
     } catch (err) {
-      setError(getErrorMessage(err, 'Не удалось сохранить опыт работы.'))
+      setError('experience', getErrorMessage(err, 'Не удалось сохранить опыт работы.'))
     }
   }
 
   const handleDeleteExperience = async (item: WorkExperienceDraft) => {
-    setNotice(null)
+    clearNotice('experience')
 
     if (!item.id) {
       removeExperienceRowLocal(item.localId)
@@ -1044,15 +1393,18 @@ export const ResumeDetailsPage = () => {
     try {
       await deleteWorkExperienceMutation.mutateAsync(item.id)
       removeExperienceRowLocal(item.localId)
+
       await queryClient.invalidateQueries({ queryKey: ['applicant-resume', numericResumeId] })
-      setSuccess('Опыт работы удалён.')
+
+      setSuccess('experience', 'Опыт работы удалён.')
     } catch (err) {
-      setError(getErrorMessage(err, 'Не удалось удалить опыт работы.'))
+      setError('experience', getErrorMessage(err, 'Не удалось удалить опыт работы.'))
     }
   }
 
   const handleDeleteResume = async () => {
-    setNotice(null)
+    clearNotice('hero')
+
     const confirmed = window.confirm('Удалить это резюме?')
     if (!confirmed) return
 
@@ -1061,7 +1413,7 @@ export const ResumeDetailsPage = () => {
       await queryClient.invalidateQueries({ queryKey: ['applicant-resumes'] })
       navigate('/applicant')
     } catch (err) {
-      setError(getErrorMessage(err, 'Не удалось удалить резюме.'))
+      setError('hero', getErrorMessage(err, 'Не удалось удалить резюме.'))
     }
   }
 
@@ -1112,25 +1464,17 @@ export const ResumeDetailsPage = () => {
     )
   }
 
+  const selectedBirthMonthLabel =
+    monthOptions.find((item) => item.value === birthMonth)?.label || ''
+
+  const selectedGenderLabel = genderOptions.find((item) => item.value === gender)?.label || ''
+
   return (
     <div className="resume-editor-page">
       <Header />
 
       <main className="resume-editor-page__main">
         <div className="resume-editor-page__container">
-
-          {notice && (
-            <div
-              className={`resume-editor-notice ${
-                notice.type === 'success'
-                  ? 'resume-editor-notice--success'
-                  : 'resume-editor-notice--error'
-              }`}
-            >
-              {notice.text}
-            </div>
-          )}
-
           <section className="resume-editor-card resume-editor-section">
             <div className="resume-editor-hero__topbar">
               <button
@@ -1151,17 +1495,71 @@ export const ResumeDetailsPage = () => {
               </button>
             </div>
 
+            <SectionNotice notice={notices.hero || null} />
+
             <div className="resume-editor-hero__content">
               <div className="resume-editor-hero__label">Резюме</div>
+
               <h1 className="resume-editor-hero__title">
                 {selectedProfessionName || currentResume?.profession?.name || 'Резюме'}
               </h1>
+
               <div className="resume-editor-hero__meta">
                 Создано: {formatDateTime(currentResume?.created_at)} · Обновлено:{' '}
                 {formatDateTime(currentResume?.updated_at)}
               </div>
             </div>
+          </section>
+
+          <section className="resume-editor-card resume-editor-section">
             <div className="resume-editor-section__head">
+              <div>
+                <h2 className="resume-editor-section__title">Профессия резюме</h2>
+                <p className="resume-editor-section__subtitle">
+                  Выберите профессию строго из справочника.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="resume-editor-btn resume-editor-btn--primary"
+                onClick={handleSaveResume}
+                disabled={resumeMutation.isPending}
+              >
+                Сохранить резюме
+              </button>
+            </div>
+
+            <SectionNotice notice={notices.resume || null} />
+
+            <div className="resume-editor-subcard resume-editor-subcard--highlight">
+              <label className="field">
+                <span>Профессия</span>
+
+                <SearchCombo
+                  value={professionSearch}
+                  placeholder="Поиск профессии"
+                  isOpen={openCombo === 'profession'}
+                  options={filteredProfessions}
+                  activeValue={selectedProfessionId}
+                  emptyText={
+                    professionsQuery.isLoading ? 'Загружаем профессии...' : 'Профессия не найдена'
+                  }
+                  onFocus={() => setOpenCombo('profession')}
+                  onChange={(value) => {
+                    setProfessionSearch(value)
+                    setSelectedProfessionId(null)
+                    setSelectedProfessionName('')
+                    setOpenCombo('profession')
+                  }}
+                  onSelect={(option) => {
+                    setSelectedProfessionId(Number(option.value))
+                    setSelectedProfessionName(option.label)
+                    setProfessionSearch(option.label)
+                    setOpenCombo(null)
+                  }}
+                />
+              </label>
             </div>
           </section>
 
@@ -1184,6 +1582,8 @@ export const ResumeDetailsPage = () => {
               </button>
             </div>
 
+            <SectionNotice notice={notices.profile || null} />
+
             <div className="resume-editor-subgrid">
               <div className="resume-editor-subcard">
                 <div className="resume-editor-subcard__title">Личные данные</div>
@@ -1191,17 +1591,29 @@ export const ResumeDetailsPage = () => {
                 <div className="form-grid form-grid--three">
                   <label className="field">
                     <span>Фамилия</span>
-                    <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                    <input
+                      value={lastName}
+                      onChange={(event) => setLastName(event.target.value)}
+                      placeholder="Например: Иванов"
+                    />
                   </label>
 
                   <label className="field">
                     <span>Имя</span>
-                    <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                    <input
+                      value={firstName}
+                      onChange={(event) => setFirstName(event.target.value)}
+                      placeholder="Например: Иван"
+                    />
                   </label>
 
                   <label className="field">
                     <span>Отчество</span>
-                    <input value={middleName} onChange={(e) => setMiddleName(e.target.value)} />
+                    <input
+                      value={middleName}
+                      onChange={(event) => setMiddleName(event.target.value)}
+                      placeholder="Например: Иванович"
+                    />
                   </label>
                 </div>
 
@@ -1210,10 +1622,11 @@ export const ResumeDetailsPage = () => {
                     <span>Пол</span>
 
                     <SelectCombo
-                      value={genderOptions.find((item) => item.value === gender)?.label || ''}
+                      value={selectedGenderLabel}
                       placeholder="Выберите пол"
                       isOpen={openCombo === 'gender'}
                       options={genderOptions}
+                      activeValue={gender}
                       onToggle={() =>
                         setOpenCombo((prev) => (prev === 'gender' ? null : 'gender'))
                       }
@@ -1231,11 +1644,13 @@ export const ResumeDetailsPage = () => {
                   <div className="date-grid date-grid--three">
                     <label className="field">
                       <span>День</span>
+
                       <SelectCombo
-                        value={dayOptions.find((item) => item.value === birthDay)?.label || ''}
+                        value={birthDay}
                         placeholder="День"
                         isOpen={openCombo === 'birthDay'}
-                        options={dayOptions}
+                        options={birthDayOptions}
+                        activeValue={birthDay}
                         onToggle={() =>
                           setOpenCombo((prev) => (prev === 'birthDay' ? null : 'birthDay'))
                         }
@@ -1248,11 +1663,13 @@ export const ResumeDetailsPage = () => {
 
                     <label className="field">
                       <span>Месяц</span>
+
                       <SelectCombo
-                        value={monthOptions.find((item) => item.value === birthMonth)?.label || ''}
+                        value={selectedBirthMonthLabel}
                         placeholder="Месяц"
                         isOpen={openCombo === 'birthMonth'}
                         options={monthOptions}
+                        activeValue={birthMonth}
                         onToggle={() =>
                           setOpenCombo((prev) => (prev === 'birthMonth' ? null : 'birthMonth'))
                         }
@@ -1265,11 +1682,13 @@ export const ResumeDetailsPage = () => {
 
                     <label className="field">
                       <span>Год</span>
+
                       <SelectCombo
                         value={birthYear}
                         placeholder="Год"
                         isOpen={openCombo === 'birthYear'}
-                        options={yearOptions}
+                        options={birthYearOptions}
+                        activeValue={birthYear}
                         onToggle={() =>
                           setOpenCombo((prev) => (prev === 'birthYear' ? null : 'birthYear'))
                         }
@@ -1286,25 +1705,23 @@ export const ResumeDetailsPage = () => {
               <div className="resume-editor-subcard">
                 <div className="resume-editor-subcard__title">Контактная информация</div>
 
-                <div className="form-grid form-grid--two">
+                <div className="form-grid">
                   <label className="field">
                     <span>Город проживания</span>
 
-                    <SearchCombo
-                      value={citySearch}
+                    <SelectCombo
+                      value={cityName}
                       placeholder="Выберите город"
                       isOpen={openCombo === 'city'}
-                      options={filteredCities}
+                      options={cityOptions}
                       activeValue={cityId}
-                      onFocus={() => setOpenCombo('city')}
-                      onChange={(value) => {
-                        setCitySearch(value)
-                        setCityId(null)
-                        setOpenCombo('city')
-                      }}
+                      emptyText={citiesQuery.isLoading ? 'Загружаем города...' : 'Города не найдены'}
+                      onToggle={() =>
+                        setOpenCombo((prev) => (prev === 'city' ? null : 'city'))
+                      }
                       onSelect={(option) => {
                         setCityId(Number(option.value))
-                        setCitySearch(option.label)
+                        setCityName(option.label)
                         setOpenCombo(null)
                       }}
                     />
@@ -1312,7 +1729,15 @@ export const ResumeDetailsPage = () => {
 
                   <label className="field">
                     <span>Номер телефона</span>
-                    <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      value={phone}
+                      onChange={(event) => setPhone(event.target.value)}
+                      onBlur={() => setPhone(normalizePhone(phone))}
+                      placeholder="+375 (29) 123-45-67"
+                    />
                   </label>
                 </div>
               </div>
@@ -1338,6 +1763,8 @@ export const ResumeDetailsPage = () => {
               </button>
             </div>
 
+            <SectionNotice notice={notices.skills || null} />
+
             <div className="resume-editor-subcard resume-editor-subcard--highlight">
               <label className="field">
                 <span>Навыки</span>
@@ -1347,17 +1774,17 @@ export const ResumeDetailsPage = () => {
                   placeholder="Поиск навыков"
                   isOpen={openCombo === 'skills'}
                   options={filteredSkills}
+                  emptyText={skillsQuery.isLoading ? 'Загружаем навыки...' : 'Навыки не найдены'}
                   onFocus={() => setOpenCombo('skills')}
                   onChange={(value) => {
                     setSkillSearch(value)
                     setOpenCombo('skills')
                   }}
                   onSelect={(option) => addSkillToSelection(Number(option.value))}
-                  emptyText="Навыки не найдены"
                 />
               </label>
 
-              {selectedSkills.length > 0 && (
+              {selectedSkills.length > 0 ? (
                 <div className="chip-list chip-list--selected">
                   {selectedSkills.map((item) => (
                     <button
@@ -1370,13 +1797,13 @@ export const ResumeDetailsPage = () => {
                     </button>
                   ))}
                 </div>
-              )}
+              ) : null}
 
               <div className="section-block">
                 <span className="section-block__label">Рекомендованные навыки</span>
 
                 <div className="chip-list">
-                  {filteredSkills.map((item) => (
+                  {filteredSkills.slice(0, 18).map((item) => (
                     <button
                       key={String(item.value)}
                       type="button"
@@ -1422,9 +1849,11 @@ export const ResumeDetailsPage = () => {
               </div>
             </div>
 
-            {experiences.length === 0 && (
+            <SectionNotice notice={notices.experience || null} />
+
+            {experiences.length === 0 ? (
               <div className="resume-editor-empty-inline">Опыт работы пока не добавлен.</div>
-            )}
+            ) : null}
 
             {experiences.map((experience, index) => {
               const startMonthLabel =
@@ -1451,25 +1880,27 @@ export const ResumeDetailsPage = () => {
                   <div className="form-grid form-grid--two">
                     <label className="field">
                       <span>Компания</span>
+
                       <input
-                        placeholder="Компания"
+                        placeholder="Например: БелСофт"
                         value={experience.company_name}
-                        onChange={(e) =>
+                        onChange={(event) =>
                           updateExperienceRow(experience.localId, {
-                            company_name: e.target.value,
+                            company_name: event.target.value,
                           })
                         }
                       />
                     </label>
 
                     <label className="field">
-                      <span>Должность или профессия</span>
+                      <span>Должность</span>
+
                       <input
-                        placeholder="Должность или профессия"
+                        placeholder="Например: Frontend-разработчик"
                         value={experience.position}
-                        onChange={(e) =>
+                        onChange={(event) =>
                           updateExperienceRow(experience.localId, {
-                            position: e.target.value,
+                            position: event.target.value,
                           })
                         }
                       />
@@ -1483,11 +1914,13 @@ export const ResumeDetailsPage = () => {
                       <div className="date-grid date-grid--two">
                         <label className="field">
                           <span>Месяц</span>
+
                           <SelectCombo
                             value={startMonthLabel}
                             placeholder="Месяц"
                             isOpen={openCombo === `exp-start-month-${experience.localId}`}
                             options={monthOptions}
+                            activeValue={experience.start_month}
                             onToggle={() =>
                               setOpenCombo((prev) =>
                                 prev === `exp-start-month-${experience.localId}`
@@ -1506,11 +1939,13 @@ export const ResumeDetailsPage = () => {
 
                         <label className="field">
                           <span>Год</span>
+
                           <SelectCombo
                             value={experience.start_year}
                             placeholder="Год"
                             isOpen={openCombo === `exp-start-year-${experience.localId}`}
-                            options={yearOptions}
+                            options={resumeYearOptions}
+                            activeValue={experience.start_year}
                             onToggle={() =>
                               setOpenCombo((prev) =>
                                 prev === `exp-start-year-${experience.localId}`
@@ -1537,11 +1972,11 @@ export const ResumeDetailsPage = () => {
                           <input
                             type="checkbox"
                             checked={experience.is_current}
-                            onChange={(e) =>
+                            onChange={(event) =>
                               updateExperienceRow(experience.localId, {
-                                is_current: e.target.checked,
-                                end_month: e.target.checked ? '' : experience.end_month,
-                                end_year: e.target.checked ? '' : experience.end_year,
+                                is_current: event.target.checked,
+                                end_month: event.target.checked ? '' : experience.end_month,
+                                end_year: event.target.checked ? '' : experience.end_year,
                               })
                             }
                           />
@@ -1552,14 +1987,17 @@ export const ResumeDetailsPage = () => {
                       <div className="date-grid date-grid--two">
                         <label className="field">
                           <span>Месяц</span>
+
                           <SelectCombo
                             value={endMonthLabel}
                             placeholder="Месяц"
                             isOpen={openCombo === `exp-end-month-${experience.localId}`}
                             options={monthOptions}
+                            activeValue={experience.end_month}
                             disabled={experience.is_current}
                             onToggle={() => {
                               if (experience.is_current) return
+
                               setOpenCombo((prev) =>
                                 prev === `exp-end-month-${experience.localId}`
                                   ? null
@@ -1577,14 +2015,17 @@ export const ResumeDetailsPage = () => {
 
                         <label className="field">
                           <span>Год</span>
+
                           <SelectCombo
                             value={experience.end_year}
                             placeholder="Год"
                             isOpen={openCombo === `exp-end-year-${experience.localId}`}
-                            options={yearOptions}
+                            options={resumeYearOptions}
+                            activeValue={experience.end_year}
                             disabled={experience.is_current}
                             onToggle={() => {
                               if (experience.is_current) return
+
                               setOpenCombo((prev) =>
                                 prev === `exp-end-year-${experience.localId}`
                                   ? null
@@ -1605,12 +2046,13 @@ export const ResumeDetailsPage = () => {
 
                   <label className="field">
                     <span>Обязанности и достижения</span>
+
                     <textarea
-                      placeholder="Чем занимались?"
+                      placeholder="Опишите, чем занимались, какие задачи решали и каких результатов достигли."
                       value={experience.description}
-                      onChange={(e) =>
+                      onChange={(event) =>
                         updateExperienceRow(experience.localId, {
-                          description: e.target.value,
+                          description: event.target.value,
                         })
                       }
                     />
@@ -1649,9 +2091,11 @@ export const ResumeDetailsPage = () => {
               </div>
             </div>
 
-            {educations.length === 0 && (
+            <SectionNotice notice={notices.education || null} />
+
+            {educations.length === 0 ? (
               <div className="resume-editor-empty-inline">Образование пока не добавлено.</div>
-            )}
+            ) : null}
 
             {educations.map((education, index) => {
               const educationSearch = education.institution_name.trim().toLowerCase()
@@ -1663,7 +2107,7 @@ export const ResumeDetailsPage = () => {
                     )
                   : educationInstitutions
               )
-                .slice(0, 20)
+                .slice(0, 30)
                 .map((item) => ({
                   value: item.id,
                   label: item.name,
@@ -1699,6 +2143,11 @@ export const ResumeDetailsPage = () => {
                       isOpen={openCombo === `education-${education.localId}`}
                       options={educationOptions}
                       activeValue={education.institution_id}
+                      emptyText={
+                        educationInstitutionsQuery.isLoading
+                          ? 'Загружаем учебные заведения...'
+                          : 'Учебное заведение не найдено'
+                      }
                       onFocus={() => setOpenCombo(`education-${education.localId}`)}
                       onChange={(value) => {
                         updateEducationRow(education.localId, {
@@ -1724,11 +2173,13 @@ export const ResumeDetailsPage = () => {
                       <div className="date-grid date-grid--two">
                         <label className="field">
                           <span>Месяц</span>
+
                           <SelectCombo
                             value={startMonthLabel}
                             placeholder="Месяц"
                             isOpen={openCombo === `education-start-month-${education.localId}`}
                             options={monthOptions}
+                            activeValue={education.start_month}
                             onToggle={() =>
                               setOpenCombo((prev) =>
                                 prev === `education-start-month-${education.localId}`
@@ -1747,11 +2198,13 @@ export const ResumeDetailsPage = () => {
 
                         <label className="field">
                           <span>Год</span>
+
                           <SelectCombo
                             value={education.start_year}
                             placeholder="Год"
                             isOpen={openCombo === `education-start-year-${education.localId}`}
-                            options={yearOptions}
+                            options={resumeYearOptions}
+                            activeValue={education.start_year}
                             onToggle={() =>
                               setOpenCombo((prev) =>
                                 prev === `education-start-year-${education.localId}`
@@ -1776,11 +2229,13 @@ export const ResumeDetailsPage = () => {
                       <div className="date-grid date-grid--two">
                         <label className="field">
                           <span>Месяц</span>
+
                           <SelectCombo
                             value={endMonthLabel}
                             placeholder="Месяц"
                             isOpen={openCombo === `education-end-month-${education.localId}`}
                             options={monthOptions}
+                            activeValue={education.end_month}
                             onToggle={() =>
                               setOpenCombo((prev) =>
                                 prev === `education-end-month-${education.localId}`
@@ -1799,11 +2254,13 @@ export const ResumeDetailsPage = () => {
 
                         <label className="field">
                           <span>Год</span>
+
                           <SelectCombo
                             value={education.end_year}
                             placeholder="Год"
                             isOpen={openCombo === `education-end-year-${education.localId}`}
-                            options={yearOptions}
+                            options={resumeYearOptions}
+                            activeValue={education.end_year}
                             onToggle={() =>
                               setOpenCombo((prev) =>
                                 prev === `education-end-year-${education.localId}`
