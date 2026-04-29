@@ -152,7 +152,7 @@ export const AdminLoginPage = () => {
           ) : null}
 
           <button className="admin-login-submit" type="submit" disabled={loading}>
-            {loading ? 'Входим...' : 'Войти в админку'}
+            {loading ? 'Входим...' : 'Войти'}
           </button>
 
           <button

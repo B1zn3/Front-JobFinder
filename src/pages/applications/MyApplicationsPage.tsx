@@ -8,42 +8,73 @@ import './my-applications.css'
 
 type RawApplication = Record<string, unknown>
 
+type ApplicationStatusKey = 'pending' | 'accepted' | 'rejected'
+type StatusFilter = 'all' | ApplicationStatusKey
+
 type ApplicationItem = {
-  id: number
+  key: string
   vacancyId: number | null
+  resumeId: number | null
   vacancyTitle: string
   companyName: string
-  status: string
+  resumeTitle: string
+  status: ApplicationStatusKey
+  statusLabel: string
   createdAt: string | null
   updatedAt: string | null
-  resumeTitle: string
   salaryText: string
-  locationText: string
+  coverLetter: string
 }
-
-type StatusFilter = 'all' | 'sent' | 'review' | 'accepted' | 'rejected'
 
 type FilterItem = {
   value: StatusFilter
   label: string
 }
 
-const PAGE_SIZE = 5
+const PAGE_SIZE = 8
 
 const FILTERS: FilterItem[] = [
   { value: 'all', label: 'Все' },
-  { value: 'sent', label: 'Отправлены' },
-  { value: 'review', label: 'На рассмотрении' },
-  { value: 'accepted', label: 'Положительные' },
+  { value: 'pending', label: 'Отправлены' },
+  { value: 'accepted', label: 'Собеседования' },
   { value: 'rejected', label: 'Отказы' },
 ]
+
+const STATUS_META: Record<
+  ApplicationStatusKey,
+  {
+    label: string
+    description: string
+    className: string
+    icon: string
+  }
+> = {
+  pending: {
+    label: 'Отправлен',
+    description: 'Отклик отправлен работодателю и ожидает рассмотрения.',
+    className: 'is-pending',
+    icon: '↗',
+  },
+  accepted: {
+    label: 'Собеседование',
+    description: 'Работодатель заинтересовался вашей кандидатурой.',
+    className: 'is-accepted',
+    icon: '✓',
+  },
+  rejected: {
+    label: 'Отказ',
+    description: 'Работодатель отклонил ваш отклик.',
+    className: 'is-rejected',
+    icon: '×',
+  },
+}
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   return value as Record<string, unknown>
 }
 
-const safeString = (value: unknown) => {
+const safeString = (value: unknown): string => {
   if (typeof value === 'string') return value
   if (typeof value === 'number') return String(value)
   return ''
@@ -70,7 +101,6 @@ const extractApplicationsArray = (value: unknown): RawApplication[] => {
 
   for (const key of possibleKeys) {
     const nested = object[key]
-
     if (Array.isArray(nested)) {
       return nested as RawApplication[]
     }
@@ -98,66 +128,68 @@ const formatDateTime = (value?: string | null) => {
   })
 }
 
-const normalizeStatus = (value: string) => {
+const formatDateShort = (value?: string | null) => {
+  if (!value) return 'Дата не указана'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Дата не указана'
+
+  return date.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  })
+}
+
+const normalizeStatus = (value: string): ApplicationStatusKey => {
   const normalized = value.trim().toLowerCase()
 
-  if (!normalized) return 'Отправлен'
-
-  if (['pending', 'sent', 'submitted', 'new', 'created'].includes(normalized)) {
-    return 'Отправлен'
-  }
-
-  if (['review', 'in_review', 'processing', 'viewed', 'considering'].includes(normalized)) {
-    return 'На рассмотрении'
-  }
-
   if (['accepted', 'approved', 'invited', 'success', 'positive'].includes(normalized)) {
-    return 'Положительный ответ'
+    return 'accepted'
   }
 
   if (['rejected', 'declined', 'denied', 'failed', 'negative'].includes(normalized)) {
-    return 'Отказ'
+    return 'rejected'
   }
 
-  return value
-}
-
-const getStatusFilter = (status: string): StatusFilter => {
-  const normalized = status.toLowerCase()
-
-  if (normalized.includes('отказ')) return 'rejected'
-  if (normalized.includes('рассмотр')) return 'review'
-  if (normalized.includes('полож')) return 'accepted'
-
-  return 'sent'
+  return 'pending'
 }
 
 const formatSalary = (application: RawApplication) => {
   const vacancy = asRecord(application.vacancy ?? application.job)
 
-  const salaryFrom =
+  const salaryMin =
+    safeNumber(application.salary_min) ??
+    safeNumber(application.salaryMin) ??
     safeNumber(application.salary_from) ??
     safeNumber(application.salaryFrom) ??
+    safeNumber(vacancy?.salary_min) ??
+    safeNumber(vacancy?.salaryMin) ??
     safeNumber(vacancy?.salary_from) ??
     safeNumber(vacancy?.salaryFrom)
 
-  const salaryTo =
+  const salaryMax =
+    safeNumber(application.salary_max) ??
+    safeNumber(application.salaryMax) ??
     safeNumber(application.salary_to) ??
     safeNumber(application.salaryTo) ??
+    safeNumber(vacancy?.salary_max) ??
+    safeNumber(vacancy?.salaryMax) ??
     safeNumber(vacancy?.salary_to) ??
     safeNumber(vacancy?.salaryTo)
 
-  const currency =
-    safeString(application.currency) ||
-    safeString(vacancy?.currency) ||
-    'BYN'
+  const currency = safeString(application.currency) || safeString(vacancy?.currency) || 'BYN'
 
-  if (salaryFrom !== null && salaryTo !== null) {
-    return `${formatMoney(salaryFrom)}–${formatMoney(salaryTo)} ${currency}`
+  if (salaryMin !== null && salaryMax !== null) {
+    if (salaryMin === salaryMax) {
+      return `${formatMoney(salaryMin)} ${currency}`
+    }
+
+    return `${formatMoney(salaryMin)} — ${formatMoney(salaryMax)} ${currency}`
   }
 
-  if (salaryFrom !== null) return `от ${formatMoney(salaryFrom)} ${currency}`
-  if (salaryTo !== null) return `до ${formatMoney(salaryTo)} ${currency}`
+  if (salaryMin !== null) return `от ${formatMoney(salaryMin)} ${currency}`
+  if (salaryMax !== null) return `до ${formatMoney(salaryMax)} ${currency}`
 
   return 'Зарплата не указана'
 }
@@ -167,25 +199,31 @@ const normalizeApplication = (application: RawApplication, index: number): Appli
   const company = asRecord(vacancy?.company ?? application.company)
   const resume = asRecord(application.resume)
   const profession = asRecord(resume?.profession)
-  const city = asRecord(vacancy?.city ?? application.city)
-
-  const id =
-    safeNumber(application.id) ??
-    safeNumber(application.application_id) ??
-    safeNumber(application.applicationId) ??
-    index + 1
 
   const vacancyId =
     safeNumber(application.vacancy_id) ??
     safeNumber(application.vacancyId) ??
     safeNumber(vacancy?.id)
 
+  const resumeId =
+    safeNumber(application.resume_id) ??
+    safeNumber(application.resumeId) ??
+    safeNumber(resume?.id)
+
+  const status = normalizeStatus(
+    safeString(application.status) ||
+      safeString(application.application_status) ||
+      safeString(application.applicationStatus) ||
+      safeString(application.state) ||
+      'pending',
+  )
+
   const vacancyTitle =
     safeString(application.vacancy_title) ||
     safeString(application.vacancyTitle) ||
     safeString(vacancy?.title) ||
     safeString(vacancy?.name) ||
-    'Вакансия без названия'
+    (vacancyId ? `Вакансия #${vacancyId}` : 'Вакансия без названия')
 
   const companyName =
     safeString(application.company_name) ||
@@ -195,14 +233,6 @@ const normalizeApplication = (application: RawApplication, index: number): Appli
     safeString(company?.name) ||
     'Компания не указана'
 
-  const status = normalizeStatus(
-    safeString(application.status) ||
-      safeString(application.application_status) ||
-      safeString(application.applicationStatus) ||
-      safeString(application.state) ||
-      'Отправлен',
-  )
-
   const createdAt =
     safeString(application.created_at) ||
     safeString(application.createdAt) ||
@@ -210,37 +240,31 @@ const normalizeApplication = (application: RawApplication, index: number): Appli
     safeString(application.appliedAt) ||
     null
 
-  const updatedAt =
-    safeString(application.updated_at) ||
-    safeString(application.updatedAt) ||
-    null
+  const updatedAt = safeString(application.updated_at) || safeString(application.updatedAt) || null
 
   const resumeTitle =
     safeString(application.resume_title) ||
     safeString(application.resumeTitle) ||
-    safeString(profession?.name) ||
     safeString(resume?.title) ||
     safeString(resume?.name) ||
-    'Резюме не указано'
+    safeString(profession?.name) ||
+    (resumeId ? `Резюме #${resumeId}` : 'Резюме не указано')
 
-  const locationText =
-    safeString(application.city_name) ||
-    safeString(application.cityName) ||
-    safeString(city?.name) ||
-    safeString(vacancy?.location) ||
-    'Локация не указана'
+  const coverLetter = safeString(application.cover_letter) || safeString(application.coverLetter)
 
   return {
-    id,
+    key: `${vacancyId ?? 'vacancy'}-${resumeId ?? 'resume'}-${index}`,
     vacancyId,
+    resumeId,
     vacancyTitle,
     companyName,
+    resumeTitle,
     status,
+    statusLabel: STATUS_META[status].label,
     createdAt,
     updatedAt,
-    resumeTitle,
     salaryText: formatSalary(application),
-    locationText,
+    coverLetter,
   }
 }
 
@@ -253,27 +277,8 @@ const fetchMyApplications = async (): Promise<ApplicationItem[]> => {
     .sort((a, b) => {
       const left = a.createdAt ? new Date(a.createdAt).getTime() : 0
       const right = b.createdAt ? new Date(b.createdAt).getTime() : 0
-
       return right - left
     })
-}
-
-const getStatusClassName = (status: string) => {
-  const normalized = status.toLowerCase()
-
-  if (normalized.includes('отказ')) {
-    return 'application-status application-status--rejected'
-  }
-
-  if (normalized.includes('рассмотр')) {
-    return 'application-status application-status--review'
-  }
-
-  if (normalized.includes('полож')) {
-    return 'application-status application-status--accepted'
-  }
-
-  return 'application-status application-status--sent'
 }
 
 const getVisiblePages = (totalPages: number, currentPage: number): Array<number | string> => {
@@ -298,11 +303,23 @@ const getVisiblePages = (totalPages: number, currentPage: number): Array<number 
   return pages
 }
 
+const toDateStart = (value: string) => {
+  const date = new Date(`${value}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const toDateEnd = (value: string) => {
+  const date = new Date(`${value}T23:59:59.999`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 export const MyApplicationsPage = () => {
   const navigate = useNavigate()
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
 
   const applicationsQuery = useQuery({
@@ -317,36 +334,51 @@ export const MyApplicationsPage = () => {
   const stats = useMemo(() => {
     return {
       all: applications.length,
-      sent: applications.filter((item) => getStatusFilter(item.status) === 'sent').length,
-      review: applications.filter((item) => getStatusFilter(item.status) === 'review').length,
-      accepted: applications.filter((item) => getStatusFilter(item.status) === 'accepted').length,
-      rejected: applications.filter((item) => getStatusFilter(item.status) === 'rejected').length,
+      pending: applications.filter((item) => item.status === 'pending').length,
+      accepted: applications.filter((item) => item.status === 'accepted').length,
+      rejected: applications.filter((item) => item.status === 'rejected').length,
     }
   }, [applications])
 
   const filteredApplications = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
+    const fromDate = dateFrom ? toDateStart(dateFrom) : null
+    const toDate = dateTo ? toDateEnd(dateTo) : null
 
     return applications.filter((application) => {
-      const matchesStatus =
-        statusFilter === 'all' || getStatusFilter(application.status) === statusFilter
+      const matchesStatus = statusFilter === 'all' || application.status === statusFilter
 
       const matchesSearch =
         !normalizedSearch ||
         application.vacancyTitle.toLowerCase().includes(normalizedSearch) ||
         application.companyName.toLowerCase().includes(normalizedSearch) ||
-        application.resumeTitle.toLowerCase().includes(normalizedSearch) ||
-        application.locationText.toLowerCase().includes(normalizedSearch)
+        application.resumeTitle.toLowerCase().includes(normalizedSearch)
 
-      return matchesStatus && matchesSearch
+      let matchesDate = true
+
+      if (fromDate || toDate) {
+        if (!application.createdAt) {
+          matchesDate = false
+        } else {
+          const appDate = new Date(application.createdAt)
+          if (Number.isNaN(appDate.getTime())) {
+            matchesDate = false
+          } else {
+            if (fromDate && appDate < fromDate) matchesDate = false
+            if (toDate && appDate > toDate) matchesDate = false
+          }
+        }
+      }
+
+      return matchesStatus && matchesSearch && matchesDate
     })
-  }, [applications, search, statusFilter])
+  }, [applications, search, statusFilter, dateFrom, dateTo])
 
   const totalPages = Math.max(1, Math.ceil(filteredApplications.length / PAGE_SIZE))
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [search, statusFilter])
+  }, [search, statusFilter, dateFrom, dateTo])
 
   useEffect(() => {
     setCurrentPage((prev) => Math.min(prev, totalPages))
@@ -361,330 +393,386 @@ export const MyApplicationsPage = () => {
     return getVisiblePages(totalPages, currentPage)
   }, [totalPages, currentPage])
 
-  const hasFilters = search.trim() || statusFilter !== 'all'
+  const selectedFilterLabel =
+    FILTERS.find((filter) => filter.value === statusFilter)?.label || 'Все'
+
+  const hasFilters =
+    Boolean(search.trim()) || statusFilter !== 'all' || Boolean(dateFrom) || Boolean(dateTo)
+
   const hasPagination = filteredApplications.length > PAGE_SIZE
 
-  const shownFrom =
-    filteredApplications.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
-
+  const shownFrom = filteredApplications.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
   const shownTo = Math.min(currentPage * PAGE_SIZE, filteredApplications.length)
-
-  const getFilterCount = (filter: StatusFilter) => {
-    return stats[filter]
-  }
 
   return (
     <div className="my-applications-page">
       <Header />
 
       <main className="my-applications-page__main">
-        <div className="my-applications-page__container">
-          <section className="my-applications-shell">
-            <div className="my-applications-hero">
+        <section className="my-applications-hero">
+          <div className="my-applications-container">
+            <div className="my-applications-hero__card">
               <div className="my-applications-hero__content">
-                <span className="my-applications-hero__eyebrow">Личный кабинет</span>
-
                 <h1 className="my-applications-hero__title">Мои отклики</h1>
 
                 <p className="my-applications-hero__subtitle">
-                  Отслеживайте статусы откликов, открывайте вакансии и быстро находите нужную
-                  заявку по компании, резюме или городу.
+                  Управляйте своими откликами, отслеживайте решения работодателей и быстро
+                  переходите к интересующим вакансиям.
                 </p>
               </div>
 
               <button
                 type="button"
-                className="my-applications-btn my-applications-btn--primary"
+                className="my-applications-primary-btn"
                 onClick={() => navigate('/vacancies')}
               >
                 Найти вакансии
               </button>
             </div>
+          </div>
+        </section>
 
-            <div className="my-applications-summary">
+        <section className="my-applications-content">
+          <div className="my-applications-container">
+            <div className="my-applications-stats">
               <button
                 type="button"
-                className={`summary-tile ${statusFilter === 'all' ? 'is-active' : ''}`}
+                className={`applications-stat-card ${statusFilter === 'all' ? 'is-active' : ''}`}
                 onClick={() => setStatusFilter('all')}
               >
-                <span className="summary-tile__label">Всего</span>
-                <strong className="summary-tile__value">{stats.all}</strong>
+                <span>Всего</span>
+                <strong>{stats.all}</strong>
               </button>
 
               <button
                 type="button"
-                className={`summary-tile ${statusFilter === 'sent' ? 'is-active' : ''}`}
-                onClick={() => setStatusFilter('sent')}
+                className={`applications-stat-card ${
+                  statusFilter === 'pending' ? 'is-active' : ''
+                }`}
+                onClick={() => setStatusFilter('pending')}
               >
-                <span className="summary-tile__label">Отправлены</span>
-                <strong className="summary-tile__value">{stats.sent}</strong>
+                <span>Отправлены</span>
+                <strong>{stats.pending}</strong>
               </button>
 
               <button
                 type="button"
-                className={`summary-tile ${statusFilter === 'review' ? 'is-active' : ''}`}
-                onClick={() => setStatusFilter('review')}
-              >
-                <span className="summary-tile__label">На рассмотрении</span>
-                <strong className="summary-tile__value">{stats.review}</strong>
-              </button>
-
-              <button
-                type="button"
-                className={`summary-tile ${statusFilter === 'accepted' ? 'is-active' : ''}`}
+                className={`applications-stat-card ${
+                  statusFilter === 'accepted' ? 'is-active' : ''
+                }`}
                 onClick={() => setStatusFilter('accepted')}
               >
-                <span className="summary-tile__label">Положительные</span>
-                <strong className="summary-tile__value">{stats.accepted}</strong>
+                <span>Собеседования</span>
+                <strong>{stats.accepted}</strong>
               </button>
 
               <button
                 type="button"
-                className={`summary-tile ${statusFilter === 'rejected' ? 'is-active' : ''}`}
+                className={`applications-stat-card ${
+                  statusFilter === 'rejected' ? 'is-active' : ''
+                }`}
                 onClick={() => setStatusFilter('rejected')}
               >
-                <span className="summary-tile__label">Отказы</span>
-                <strong className="summary-tile__value">{stats.rejected}</strong>
+                <span>Отказы</span>
+                <strong>{stats.rejected}</strong>
               </button>
             </div>
 
-            <div className="my-applications-toolbar">
-              <label className="my-applications-search">
-                <span className="my-applications-search__label">Поиск</span>
+            <div className="applications-filters-panel">
+              <div className="applications-filters-panel__left">
+                <label className="applications-field applications-field--search">
+                  <span>Поиск</span>
+                  <input
+                    type="text"
+                    placeholder="Вакансия, компания или резюме"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                </label>
 
-                <input
-                  type="text"
-                  placeholder="Вакансия, компания, резюме или город"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-              </label>
-
-              <div className="my-applications-filters" aria-label="Фильтр по статусу">
-                {FILTERS.map((filter) => (
-                  <button
-                    key={filter.value}
-                    type="button"
-                    className={`my-applications-filter ${
-                      statusFilter === filter.value ? 'is-active' : ''
-                    }`}
-                    onClick={() => setStatusFilter(filter.value)}
+                <label className="applications-field">
+                  <span>Статус</span>
+                  <select
+                    value={statusFilter}
+                    onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
                   >
-                    <span>{filter.label}</span>
-                    <strong>{getFilterCount(filter.value)}</strong>
-                  </button>
-                ))}
-              </div>
+                    {FILTERS.map((filter) => (
+                      <option key={filter.value} value={filter.value}>
+                        {filter.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-              {hasFilters && (
-                <button
-                  type="button"
-                  className="my-applications-clear"
-                  onClick={() => {
-                    setSearch('')
-                    setStatusFilter('all')
-                  }}
-                >
-                  Сбросить фильтры
-                </button>
-              )}
-            </div>
+                <div className="applications-date-range">
+                  <span className="applications-date-range__label">Период отклика</span>
 
-            {applicationsQuery.isLoading && (
-              <div className="my-applications-list">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <div key={index} className="application-card application-card--skeleton" />
-                ))}
-              </div>
-            )}
+                  <div className="applications-date-range__box">
+                    <label className="applications-date-field">
+                      <span>С</span>
+                      <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(event) => setDateFrom(event.target.value)}
+                      />
+                    </label>
 
-            {applicationsQuery.isError && (
-              <div className="my-applications-state my-applications-state--error">
-                <h2>Не удалось загрузить отклики</h2>
-                <p>Проверьте соединение или попробуйте обновить страницу.</p>
-              </div>
-            )}
+                    <div className="applications-date-range__divider" />
 
-            {!applicationsQuery.isLoading &&
-              !applicationsQuery.isError &&
-              applications.length === 0 && (
-                <div className="my-applications-empty">
-                  <h2>У вас пока нет откликов</h2>
-
-                  <p>
-                    Когда вы откликнетесь на вакансию, она появится здесь вместе со статусом и
-                    деталями.
-                  </p>
-
-                  <button
-                    type="button"
-                    className="my-applications-btn my-applications-btn--primary"
-                    onClick={() => navigate('/vacancies')}
-                  >
-                    Смотреть вакансии
-                  </button>
+                    <label className="applications-date-field">
+                      <span>По</span>
+                      <input
+                        type="date"
+                        value={dateTo}
+                        onChange={(event) => setDateTo(event.target.value)}
+                      />
+                    </label>
+                  </div>
                 </div>
-              )}
+              </div>
 
-            {!applicationsQuery.isLoading &&
-              !applicationsQuery.isError &&
-              applications.length > 0 &&
-              filteredApplications.length === 0 && (
-                <div className="my-applications-empty">
-                  <h2>Ничего не найдено</h2>
-
-                  <p>По текущему поиску и фильтрам откликов нет.</p>
-
+              <div className="applications-filters-panel__right">
+                {hasFilters ? (
                   <button
                     type="button"
-                    className="my-applications-btn my-applications-btn--outline"
+                    className="my-applications-ghost-btn"
                     onClick={() => {
                       setSearch('')
                       setStatusFilter('all')
+                      setDateFrom('')
+                      setDateTo('')
                     }}
                   >
                     Сбросить фильтры
                   </button>
-                </div>
-              )}
+                ) : null}
+              </div>
+            </div>
+
+            <div className="applications-list-head">
+              <div>
+                <h2>{selectedFilterLabel}</h2>
+                <p>
+                  {filteredApplications.length > 0
+                    ? `Показано ${shownFrom}–${shownTo} из ${filteredApplications.length}`
+                    : 'Нет откликов для отображения'}
+                </p>
+              </div>
+            </div>
+
+            {applicationsQuery.isLoading ? (
+              <div className="applications-list">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="application-card application-card--skeleton" />
+                ))}
+              </div>
+            ) : null}
+
+            {applicationsQuery.isError ? (
+              <div className="applications-empty applications-empty--error">
+                <h3>Не удалось загрузить отклики</h3>
+                <p>Проверьте соединение с сервером или попробуйте обновить страницу.</p>
+              </div>
+            ) : null}
 
             {!applicationsQuery.isLoading &&
-              !applicationsQuery.isError &&
-              filteredApplications.length > 0 && (
-                <>
-                  <div className="my-applications-count">
-                    Показано {shownFrom}–{shownTo} из {filteredApplications.length}
-                  </div>
+            !applicationsQuery.isError &&
+            applications.length === 0 ? (
+              <div className="applications-empty">
+                <h3>У вас пока нет откликов</h3>
+                <p>Когда вы откликнетесь на вакансию, она появится здесь вместе со статусом.</p>
 
-                  <div className="my-applications-list">
-                    {paginatedApplications.map((application) => (
-                      <article key={application.id} className="application-card">
-                        <div className="application-card__head">
-                          <div className="application-card__main">
-                            <div className="application-card__company">
-                              {application.companyName}
+                <button
+                  type="button"
+                  className="my-applications-secondary-btn"
+                  onClick={() => navigate('/vacancies')}
+                >
+                  Смотреть вакансии
+                </button>
+              </div>
+            ) : null}
+
+            {!applicationsQuery.isLoading &&
+            !applicationsQuery.isError &&
+            applications.length > 0 &&
+            filteredApplications.length === 0 ? (
+              <div className="applications-empty">
+                <h3>Ничего не найдено</h3>
+                <p>По выбранным фильтрам отклики не найдены.</p>
+
+                <button
+                  type="button"
+                  className="my-applications-secondary-btn"
+                  onClick={() => {
+                    setSearch('')
+                    setStatusFilter('all')
+                    setDateFrom('')
+                    setDateTo('')
+                  }}
+                >
+                  Сбросить фильтры
+                </button>
+              </div>
+            ) : null}
+
+            {!applicationsQuery.isLoading &&
+            !applicationsQuery.isError &&
+            filteredApplications.length > 0 ? (
+              <>
+                <div className="applications-list">
+                  {paginatedApplications.map((application) => {
+                    const meta = STATUS_META[application.status]
+
+                    return (
+                      <article
+                        key={application.key}
+                        className={`application-card ${meta.className}`}
+                      >
+                        <div className={`application-card__accent ${meta.className}`} />
+
+                        <div className="application-card__content">
+                          <div className="application-card__header">
+                            <div className="application-card__title-block">
+                              <span className="application-card__company-name">
+                                {application.companyName}
+                              </span>
+
+                              <h3 className="application-card__title">
+                                {application.vacancyTitle}
+                              </h3>
+
+                              <p className="application-card__subtitle">{meta.description}</p>
                             </div>
 
-                            <h2 className="application-card__title">
-                              {application.vacancyTitle}
-                            </h2>
+                            <div className={`application-status ${meta.className}`}>
+                              <span className="application-status__icon">{meta.icon}</span>
+                              <span>{application.statusLabel}</span>
+                            </div>
                           </div>
 
-                          <div className={getStatusClassName(application.status)}>
-                            {application.status}
-                          </div>
-                        </div>
+                          <div className="application-card__facts">
+                            <div className="application-fact">
+                              <span className="application-fact__label">Резюме</span>
+                              <strong className="application-fact__value">
+                                {application.resumeTitle}
+                              </strong>
+                            </div>
 
-                        <div className="application-card__facts">
-                          <div className="application-fact">
-                            <span className="application-fact__label">Резюме</span>
-                            <span className="application-fact__value">
-                              {application.resumeTitle}
-                            </span>
-                          </div>
+                            <div className="application-fact">
+                              <span className="application-fact__label">Компания</span>
+                              <strong className="application-fact__value">
+                                {application.companyName}
+                              </strong>
+                            </div>
 
-                          <div className="application-fact">
-                            <span className="application-fact__label">Локация</span>
-                            <span className="application-fact__value">
-                              {application.locationText}
-                            </span>
-                          </div>
+                            <div className="application-fact">
+                              <span className="application-fact__label">Зарплата</span>
+                              <strong className="application-fact__value">
+                                {application.salaryText}
+                              </strong>
+                            </div>
 
-                          <div className="application-fact">
-                            <span className="application-fact__label">Зарплата</span>
-                            <span className="application-fact__value">
-                              {application.salaryText}
-                            </span>
-                          </div>
-
-                          <div className="application-fact">
-                            <span className="application-fact__label">Дата отклика</span>
-                            <span className="application-fact__value">
-                              {formatDateTime(application.createdAt)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="application-card__footer">
-                          <div className="application-card__updated">
-                            Обновлено: {formatDateTime(application.updatedAt || application.createdAt)}
+                            <div className="application-fact">
+                              <span className="application-fact__label">Дата отклика</span>
+                              <strong className="application-fact__value">
+                                {formatDateShort(application.createdAt)}
+                              </strong>
+                            </div>
                           </div>
 
-                          <div className="application-card__actions">
-                            {application.vacancyId ? (
+                          {application.coverLetter ? (
+                            <div className="application-cover-letter">
+                              <span className="application-cover-letter__label">
+                                Сопроводительное письмо
+                              </span>
+                              <p className="application-cover-letter__text">
+                                {application.coverLetter}
+                              </p>
+                            </div>
+                          ) : null}
+
+                          <div className="application-card__footer">
+                            <div className="application-card__updated">
+                              Обновлено:{' '}
+                              {formatDateTime(application.updatedAt || application.createdAt)}
+                            </div>
+
+                            <div className="application-card__actions">
+                              {application.vacancyId ? (
+                                <button
+                                  type="button"
+                                  className="my-applications-secondary-btn"
+                                  onClick={() => navigate(`/vacancies/${application.vacancyId}`)}
+                                >
+                                  Открыть вакансию
+                                </button>
+                              ) : null}
+
                               <button
                                 type="button"
-                                className="my-applications-btn my-applications-btn--outline"
-                                onClick={() => navigate(`/vacancies/${application.vacancyId}`)}
+                                className="my-applications-ghost-btn"
+                                onClick={() => navigate('/vacancies')}
                               >
-                                Открыть вакансию
+                                Другие вакансии
                               </button>
-                            ) : null}
-
-                            <button
-                              type="button"
-                              className="my-applications-btn my-applications-btn--ghost"
-                              onClick={() => navigate('/vacancies')}
-                            >
-                              Другие вакансии
-                            </button>
+                            </div>
                           </div>
                         </div>
                       </article>
-                    ))}
-                  </div>
+                    )
+                  })}
+                </div>
 
-                  {hasPagination && (
-                    <div className="my-applications-pagination" aria-label="Пагинация откликов">
-                      <button
-                        type="button"
-                        className="my-applications-pagination__arrow"
-                        disabled={currentPage === 1}
-                        onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                      >
-                        Назад
-                      </button>
+                {hasPagination ? (
+                  <div className="applications-pagination" aria-label="Пагинация откликов">
+                    <button
+                      type="button"
+                      className="applications-pagination__arrow"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                    >
+                      Назад
+                    </button>
 
-                      <div className="my-applications-pagination__pages">
-                        {visiblePages.map((page) => {
-                          if (typeof page === 'string') {
-                            return (
-                              <span key={page} className="my-applications-pagination__dots">
-                                ...
-                              </span>
-                            )
-                          }
-
+                    <div className="applications-pagination__pages">
+                      {visiblePages.map((page) => {
+                        if (typeof page === 'string') {
                           return (
-                            <button
-                              key={page}
-                              type="button"
-                              className={`my-applications-pagination__page ${
-                                currentPage === page ? 'is-active' : ''
-                              }`}
-                              onClick={() => setCurrentPage(page)}
-                              aria-current={currentPage === page ? 'page' : undefined}
-                            >
-                              {page}
-                            </button>
+                            <span key={page} className="applications-pagination__dots">
+                              ...
+                            </span>
                           )
-                        })}
-                      </div>
+                        }
 
-                      <button
-                        type="button"
-                        className="my-applications-pagination__arrow"
-                        disabled={currentPage === totalPages}
-                        onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                      >
-                        Вперёд
-                      </button>
+                        return (
+                          <button
+                            key={page}
+                            type="button"
+                            className={`applications-pagination__page ${
+                              currentPage === page ? 'is-active' : ''
+                            }`}
+                            onClick={() => setCurrentPage(page)}
+                          >
+                            {page}
+                          </button>
+                        )
+                      })}
                     </div>
-                  )}
-                </>
-              )}
-          </section>
-        </div>
+
+                    <button
+                      type="button"
+                      className="applications-pagination__arrow"
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                    >
+                      Вперёд
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </section>
       </main>
 
       <Footer />
