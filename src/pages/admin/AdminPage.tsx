@@ -1,15 +1,11 @@
 import axios from 'axios'
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type JSX,
-  type ReactNode,
-} from 'react'
+import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { http } from '../../shared/api/http'
 import { authSession } from '../../shared/auth/session'
+import showPasswordIcon from '../../assets/показать_пароль.png'
+import hidePasswordIcon from '../../assets/скрыть_пароль.png'
 import './admin.css'
 
 type TabKey =
@@ -34,6 +30,21 @@ type CatalogKey =
   | 'experiences'
   | 'statuses'
 
+type DashboardChartKey =
+  | 'registrations'
+  | 'platform'
+  | 'roles'
+  | 'applications-status'
+  | 'top-cities'
+  | 'top-professions'
+
+type DashboardPeriod = '7d' | '30d' | '90d' | '365d' | 'all'
+type ProfessionChartSource = 'resumes' | 'vacancies'
+type CommonStatusFilter = 'all' | 'active' | 'blocked'
+type UserRoleFilter = 'all' | 'admin' | 'company' | 'applicant'
+type ResumeFilter = 'all' | 'has-resumes' | 'no-resumes'
+type SalaryFilter = 'all' | 'with-salary' | 'no-salary'
+
 type CatalogItem = {
   id: number
   name: string
@@ -46,38 +57,39 @@ type AuthMeResponse = {
   is_active: boolean
 }
 
+type DashboardRegistrationPoint = {
+  label?: string
+  date?: string
+  users?: number
+  applicants?: number
+  companies?: number
+  admins?: number
+  count?: number
+}
+
+type DashboardMetricItem = {
+  key?: string
+  label: string
+  value: number
+}
+
 type DashboardResponse = {
   users_total?: number
   users_active?: number
+  users_blocked?: number
   companies_total?: number
   applicants_total?: number
   vacancies_total?: number
   applications_total?: number
+  admins_total?: number
   vacancies_by_status?: Record<string, number>
   applications_by_status?: Record<string, number>
-  recent_users?: Array<{
-    id: number
-    email?: string
-    role?: string
-    is_active?: boolean
-    created_at?: string | null
-  }>
-  recent_vacancies?: Array<{
-    id: number
-    title?: string
-    company_name?: string | null
-    status_name?: string | null
-    created_at?: string | null
-  }>
-  recent_applications?: Array<{
-    vacancy_id?: number
-    resume_id?: number
-    status?: string
-    vacancy_title?: string | null
-    company_name?: string | null
-    resume_profession?: string | null
-    created_at?: string | null
-  }>
+  users_by_role?: Record<string, number>
+  users_by_status?: Record<string, number>
+  registrations?: DashboardRegistrationPoint[]
+  registrations_by_period?: Array<{ date: string; count: number }>
+  top_cities?: DashboardMetricItem[]
+  top_professions?: DashboardMetricItem[]
 }
 
 type UserAdmin = {
@@ -111,6 +123,8 @@ type CompanyAdmin = {
   founded_year?: number | null
   employee_count?: number | null
   vacancy_ids?: number[]
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 type ApplicantAdmin = {
@@ -127,7 +141,10 @@ type ApplicantAdmin = {
   photo?: string | null
   resumes?: Array<Record<string, unknown>>
   educations?: Array<Record<string, unknown>>
+  work_experiences?: Array<Record<string, unknown>>
   applications_count?: number
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 type VacancyAdmin = {
@@ -146,6 +163,7 @@ type VacancyAdmin = {
   profession_name?: string | null
   status_name?: string | null
   created_at?: string | null
+  updated_at?: string | null
   skills?: Array<{ id?: number; name?: string } | string>
 }
 
@@ -158,10 +176,12 @@ type ApplicationAdmin = {
   vacancy_title?: string | null
   company_name?: string | null
   applicant_name?: string | null
+  applicant_id?: number | null
   resume_profession?: string | null
   city_name?: string | null
   salary_min?: number | null
   salary_max?: number | null
+  cover_letter?: string | null
 }
 
 type AdminListItem = {
@@ -179,6 +199,7 @@ type AdminDetail = {
   is_active: boolean
   created_at?: string | null
   updated_at?: string | null
+  password_set?: boolean | null
 }
 
 type DetailTarget =
@@ -189,6 +210,26 @@ type DetailTarget =
   | { kind: 'vacancy'; id: number }
   | { kind: 'application'; vacancyId: number; resumeId: number }
   | null
+
+type ChartPoint = {
+  label: string
+  value: number
+}
+
+type PageState = Record<TabKey, number>
+
+const PAGE_SIZE = 8
+
+const defaultPages: PageState = {
+  dashboard: 1,
+  catalogs: 1,
+  admins: 1,
+  users: 1,
+  companies: 1,
+  applicants: 1,
+  vacancies: 1,
+  applications: 1,
+}
 
 const catalogDefinitions: Array<{ key: CatalogKey; label: string }> = [
   { key: 'cities', label: 'Города' },
@@ -203,12 +244,40 @@ const catalogDefinitions: Array<{ key: CatalogKey; label: string }> = [
   { key: 'statuses', label: 'Статусы вакансий' },
 ]
 
+const dashboardCharts: Array<{ value: DashboardChartKey; label: string; description: string }> = [
+  { value: 'registrations', label: 'Регистрации', description: 'Динамика создания аккаунтов за выбранный период.' },
+  { value: 'platform', label: 'Структура платформы', description: 'Компании, соискатели, вакансии и отклики.' },
+  { value: 'roles', label: 'Роли пользователей', description: 'Администраторы, работодатели и соискатели.' },
+  { value: 'applications-status', label: 'Статусы откликов', description: 'Распределение откликов по состояниям.' },
+  { value: 'top-cities', label: 'Города', description: 'Города с наибольшим количеством соискателей.' },
+  { value: 'top-professions', label: 'Профессии', description: 'Профессии резюме или вакансий за выбранный период.' },
+]
+
+const dashboardPeriods: Array<{ value: DashboardPeriod; label: string }> = [
+  { value: '7d', label: '7 дней' },
+  { value: '30d', label: '30 дней' },
+  { value: '90d', label: '90 дней' },
+  { value: '365d', label: 'Год' },
+  { value: 'all', label: 'Всё время' },
+]
+
 const statusLabels: Record<string, string> = {
   pending: 'На рассмотрении',
   review: 'На рассмотрении',
   accepted: 'Принят',
   rejected: 'Отклонён',
   sent: 'Отправлен',
+  active: 'Активные',
+  blocked: 'Заблокированные',
+  draft: 'Черновик',
+  published: 'Опубликована',
+  archived: 'Архив',
+}
+
+const roleLabels: Record<UserAdmin['role'], string> = {
+  admin: 'Администратор',
+  company: 'Работодатель',
+  applicant: 'Соискатель',
 }
 
 const toArray = <T,>(value: unknown): T[] => {
@@ -233,12 +302,41 @@ const safeNumber = (value: unknown): number | null => {
   }
   return null
 }
+const getNestedName = (value: unknown) => {
+  if (value && typeof value === 'object') {
+    return safeString((value as Record<string, unknown>).name)
+  }
 
+  return ''
+}
+
+const getNestedId = (value: unknown) => {
+  if (value && typeof value === 'object') {
+    return safeNumber((value as Record<string, unknown>).id)
+  }
+
+  return null
+}
+
+const readEntityName = (item: Record<string, unknown>, directKey: string, nestedKey: string) => {
+  return safeString(item[directKey]) || getNestedName(item[nestedKey])
+}
+
+const readEntityId = (item: Record<string, unknown>, directKey: string, nestedKey: string) => {
+  return safeNumber(item[directKey]) ?? getNestedId(item[nestedKey])
+}
 const formatDateTime = (value?: string | null) => {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleString('ru-RU')
+}
+
+const formatChartDate = (value?: string | null) => {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
 }
 
 const formatSalary = (min?: number | null, max?: number | null, currency = 'BYN') => {
@@ -248,49 +346,112 @@ const formatSalary = (min?: number | null, max?: number | null, currency = 'BYN'
   return 'Не указана'
 }
 
-const getUserLabel = (user: UserAdmin) => {
-  if (user.role === 'admin') return 'Администратор'
-  if (user.role === 'company') return 'Работодатель'
-  return 'Соискатель'
+const formatCompactNumber = (value?: number | null) => {
+  const num = Number(value || 0)
+  if (num >= 1_000_000) return `${Math.floor(num / 1_000_000)}м+`
+  if (num >= 100_000) return `${Math.floor(num / 1_000)}к+`
+  if (num >= 10_000) return `${Math.floor(num / 1_000)}к+`
+  if (num >= 1_000) return `${Math.floor(num / 100) / 10}к+`.replace('.0', '')
+  return String(num)
+}
+
+const getPercent = (value: number, total: number) => {
+  if (!total) return 0
+  return Math.round((value / total) * 100)
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PASSWORD_MIN_LENGTH = 8
+
+const normalizeBackendMessage = (message: string, fallback: string) => {
+  const text = message.trim()
+  const lower = text.toLowerCase()
+
+  if (!text) return fallback
+  if (lower.includes('already') || lower.includes('exists') || lower.includes('duplicate') || lower.includes('unique') || lower.includes('зарегистр') || lower.includes('существ')) {
+    return 'Такая почта уже зарегистрирована.'
+  }
+  if ((lower.includes('invalid') && lower.includes('email')) || (lower.includes('email') && lower.includes('valid')) || lower.includes('почт')) {
+    return 'Введите корректную почту в формате name@example.com.'
+  }
+  if ((lower.includes('password') && (lower.includes('incorrect') || lower.includes('wrong'))) || lower.includes('неверный пароль') || lower.includes('incorrect current')) {
+    return 'Текущий пароль указан неверно.'
+  }
+  if ((lower.includes('password') && (lower.includes('short') || lower.includes('8') || lower.includes('min'))) || (lower.includes('пароль') && lower.includes('символ'))) {
+    return `Пароль должен содержать минимум ${PASSWORD_MIN_LENGTH} символов.`
+  }
+  if (lower.includes('forbidden') || lower.includes('not enough permissions') || lower.includes('permission') || lower.includes('доступ')) {
+    return 'Недостаточно прав для выполнения действия.'
+  }
+  if (lower.includes('not found') || lower.includes('не найден')) {
+    return 'Запись не найдена. Обновите страницу и попробуйте снова.'
+  }
+
+  return text
 }
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (axios.isAxiosError(error)) {
     const detail = error.response?.data?.detail
 
-    if (typeof detail === 'string' && detail.trim()) {
-      return detail
+    if (typeof detail === 'string') {
+      return normalizeBackendMessage(detail, fallback)
     }
 
     if (Array.isArray(detail)) {
       const joined = detail
-        .map((item) => (typeof item?.msg === 'string' ? item.msg : ''))
+        .map((item) => {
+          if (typeof item === 'string') return item
+          if (item && typeof item === 'object') {
+            return safeString((item as Record<string, unknown>).msg) || safeString((item as Record<string, unknown>).message)
+          }
+          return ''
+        })
         .filter(Boolean)
         .join('; ')
 
-      if (joined) return joined
+      if (joined) return normalizeBackendMessage(joined, fallback)
     }
 
     if (typeof error.message === 'string' && error.message.trim()) {
-      return error.message
+      return normalizeBackendMessage(error.message, fallback)
     }
   }
 
   if (error instanceof Error && error.message.trim()) {
-    return error.message
+    return normalizeBackendMessage(error.message, fallback)
   }
 
   return fallback
 }
 
+const getEmailError = (value: string) => {
+  const email = value.trim()
+  if (!email) return 'Введите почту.'
+  if (!EMAIL_PATTERN.test(email)) return 'Введите корректную почту в формате name@example.com.'
+  return ''
+}
+
+const getOptionalPasswordError = (value: string) => {
+  const password = value.trim()
+  if (!password) return ''
+  if (password.length < PASSWORD_MIN_LENGTH) return `Пароль должен содержать минимум ${PASSWORD_MIN_LENGTH} символов.`
+  return ''
+}
+
+const getRequiredPasswordError = (value: string, label = 'Пароль') => {
+  const password = value.trim()
+  if (!password) return `${label}: обязательное поле.`
+  if (password.length < PASSWORD_MIN_LENGTH) return `${label}: минимум ${PASSWORD_MIN_LENGTH} символов.`
+  return ''
+}
+
 const maskEmail = (email: string) => {
   const [localPart = '', domain = ''] = email.split('@')
   if (!domain) return email
-
   const visible = localPart.slice(0, 3)
   const maskedLength = Math.max(localPart.length - visible.length, 3)
   const masked = '•'.repeat(maskedLength)
-
   return `${visible}${masked}@${domain}`
 }
 
@@ -325,6 +486,8 @@ const normalizeCompany = (item: Record<string, unknown>): CompanyAdmin => ({
   founded_year: safeNumber(item.founded_year),
   employee_count: safeNumber(item.employee_count),
   vacancy_ids: toArray<number>(item.vacancy_ids),
+  created_at: safeString(item.created_at) || null,
+  updated_at: safeString(item.updated_at) || null,
 })
 
 const normalizeApplicant = (item: Record<string, unknown>): ApplicantAdmin => ({
@@ -341,25 +504,39 @@ const normalizeApplicant = (item: Record<string, unknown>): ApplicantAdmin => ({
   photo: safeString(item.photo) || null,
   resumes: toArray<Record<string, unknown>>(item.resumes),
   educations: toArray<Record<string, unknown>>(item.educations),
+  work_experiences: toArray<Record<string, unknown>>(item.work_experiences),
   applications_count: safeNumber(item.applications_count) ?? 0,
+  created_at: safeString(item.created_at) || null,
+  updated_at: safeString(item.updated_at) || null,
 })
 
 const normalizeVacancy = (item: Record<string, unknown>): VacancyAdmin => ({
   id: safeNumber(item.id) ?? 0,
   title: safeString(item.title) || 'Без названия',
   description: safeString(item.description) || null,
-  company_id: safeNumber(item.company_id),
-  city_id: safeNumber(item.city_id),
-  profession_id: safeNumber(item.profession_id),
-  status_id: safeNumber(item.status_id),
+
+  company_id: readEntityId(item, 'company_id', 'company'),
+  city_id: readEntityId(item, 'city_id', 'city'),
+  profession_id: readEntityId(item, 'profession_id', 'profession'),
+  status_id: readEntityId(item, 'status_id', 'status'),
+
   salary_min: safeNumber(item.salary_min),
   salary_max: safeNumber(item.salary_max),
-  currency: safeString(item.currency) || null,
-  company_name: safeString(item.company_name) || null,
-  city_name: safeString(item.city_name) || null,
-  profession_name: safeString(item.profession_name) || null,
-  status_name: safeString(item.status_name) || null,
+
+  currency:
+    safeString(item.currency) ||
+    safeString(item.currency_name) ||
+    getNestedName(item.currency) ||
+    null,
+
+  company_name: readEntityName(item, 'company_name', 'company') || null,
+  city_name: readEntityName(item, 'city_name', 'city') || null,
+  profession_name: readEntityName(item, 'profession_name', 'profession') || null,
+  status_name: readEntityName(item, 'status_name', 'status') || null,
+
   created_at: safeString(item.created_at) || null,
+  updated_at: safeString(item.updated_at) || null,
+
   skills: Array.isArray(item.skills)
     ? (item.skills as Array<{ id?: number; name?: string } | string>)
     : [],
@@ -374,10 +551,12 @@ const normalizeApplication = (item: Record<string, unknown>): ApplicationAdmin =
   vacancy_title: safeString(item.vacancy_title) || null,
   company_name: safeString(item.company_name) || null,
   applicant_name: safeString(item.applicant_name) || null,
+  applicant_id: safeNumber(item.applicant_id),
   resume_profession: safeString(item.resume_profession) || null,
   city_name: safeString(item.city_name) || null,
   salary_min: safeNumber(item.salary_min),
   salary_max: safeNumber(item.salary_max),
+  cover_letter: safeString(item.cover_letter) || null,
 })
 
 const normalizeAdmin = (item: Record<string, unknown>): AdminListItem => ({
@@ -393,16 +572,13 @@ const fetchAuthMe = async (): Promise<AuthMeResponse> => {
   return data
 }
 
-const fetchDashboard = async (): Promise<DashboardResponse> => {
-  const { data } = await http.get('/admin/dashboard')
+const fetchDashboard = async (period: DashboardPeriod): Promise<DashboardResponse> => {
+  const { data } = await http.get('/admin/dashboard', { params: { period } })
   return data || {}
 }
 
 const fetchCatalog = async (name: string): Promise<CatalogItem[]> => {
-  const { data } = await http.get(`/admin/catalogs/${name}`, {
-    params: { skip: 0, limit: 200 },
-  })
-
+  const { data } = await http.get(`/admin/catalogs/${name}`, { params: { skip: 0, limit: 500 } })
   return toArray<Record<string, unknown>>(data).map((item) => ({
     id: safeNumber(item.id) ?? 0,
     name: safeString(item.name) || 'Без названия',
@@ -410,44 +586,32 @@ const fetchCatalog = async (name: string): Promise<CatalogItem[]> => {
 }
 
 const fetchUsers = async (): Promise<UserAdmin[]> => {
-  const { data } = await http.get('/admin/users', {
-    params: { skip: 0, limit: 500 },
-  })
+  const { data } = await http.get('/admin/users', { params: { skip: 0, limit: 500 } })
   return toArray<Record<string, unknown>>(data).map(normalizeUser)
 }
 
 const fetchCompanies = async (): Promise<CompanyAdmin[]> => {
-  const { data } = await http.get('/admin/companies', {
-    params: { skip: 0, limit: 500 },
-  })
+  const { data } = await http.get('/admin/companies', { params: { skip: 0, limit: 500 } })
   return toArray<Record<string, unknown>>(data).map(normalizeCompany)
 }
 
 const fetchApplicants = async (): Promise<ApplicantAdmin[]> => {
-  const { data } = await http.get('/admin/applicants', {
-    params: { skip: 0, limit: 500 },
-  })
+  const { data } = await http.get('/admin/applicants', { params: { skip: 0, limit: 500 } })
   return toArray<Record<string, unknown>>(data).map(normalizeApplicant)
 }
 
 const fetchVacancies = async (): Promise<VacancyAdmin[]> => {
-  const { data } = await http.get('/admin/vacancies', {
-    params: { skip: 0, limit: 500 },
-  })
+  const { data } = await http.get('/admin/vacancies', { params: { skip: 0, limit: 500 } })
   return toArray<Record<string, unknown>>(data).map(normalizeVacancy)
 }
 
 const fetchApplications = async (): Promise<ApplicationAdmin[]> => {
-  const { data } = await http.get('/admin/applications', {
-    params: { skip: 0, limit: 500 },
-  })
+  const { data } = await http.get('/admin/applications', { params: { skip: 0, limit: 500 } })
   return toArray<Record<string, unknown>>(data).map(normalizeApplication)
 }
 
 const fetchAdmins = async (): Promise<AdminListItem[]> => {
-  const { data } = await http.get('/admin/admins', {
-    params: { skip: 0, limit: 500 },
-  })
+  const { data } = await http.get('/admin/admins', { params: { skip: 0, limit: 500 } })
   return toArray<Record<string, unknown>>(data).map(normalizeAdmin)
 }
 
@@ -466,9 +630,38 @@ const fetchApplicantDetail = async (id: number) => {
   return data as Record<string, unknown>
 }
 
+const fetchApplicantDetailsForResumes = async (applicants: ApplicantAdmin[]): Promise<ApplicantAdmin[]> => {
+  const applicantsToLoad = applicants.filter((applicant) => {
+    const currentResumesCount = toArray<Record<string, unknown>>(applicant.resumes).length
+    const declaredResumesCount = applicant.resumes_count
+
+    if (currentResumesCount > 0 && (!declaredResumesCount || currentResumesCount >= declaredResumesCount)) {
+      return false
+    }
+
+    return declaredResumesCount !== 0
+  })
+
+  if (!applicantsToLoad.length) return applicants
+
+  const detailedApplicants = await Promise.all(
+    applicantsToLoad.map(async (applicant) => {
+      try {
+        const detail = await fetchApplicantDetail(applicant.id)
+        return normalizeApplicant({ ...applicant, ...detail })
+      } catch {
+        return applicant
+      }
+    }),
+  )
+
+  const detailedById = new Map(detailedApplicants.map((applicant) => [applicant.id, applicant]))
+  return applicants.map((applicant) => detailedById.get(applicant.id) || applicant)
+}
+
 const fetchVacancyDetail = async (id: number) => {
   const { data } = await http.get(`/admin/vacancies/${id}`)
-  return data as Record<string, unknown>
+  return normalizeVacancy(data as Record<string, unknown>) as unknown as Record<string, unknown>
 }
 
 const fetchApplicationDetail = async (vacancyId: number, resumeId: number) => {
@@ -481,452 +674,572 @@ const fetchAdminDetail = async (id: number): Promise<AdminDetail> => {
   return data
 }
 
-const Modal = ({
-  title,
-  subtitle,
-  onClose,
-  children,
-}: {
-  title: string
-  subtitle?: string
-  onClose: () => void
-  children: ReactNode
-}) => {
-  return (
-    <div className="admin-modal" onClick={onClose}>
-      <div className="admin-modal__dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="admin-modal__header">
-          <div>
-            <div className="admin-modal__eyebrow">Администрирование</div>
-            <h3>{title}</h3>
-            {subtitle ? <p>{subtitle}</p> : null}
-          </div>
+const toSearchValue = (...values: unknown[]) => values.map((item) => safeString(item).toLowerCase()).join(' ')
 
-          <button type="button" className="admin-modal__close" onClick={onClose}>
-            ×
-          </button>
-        </div>
-
-        <div className="admin-modal__body">{children}</div>
-      </div>
-    </div>
-  )
+const getPageItems = <T,>(items: T[], page: number) => {
+  const safePage = Math.max(page, 1)
+  return items.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 }
 
-const CustomSelect = ({
-  value,
-  placeholder,
-  options,
-  isOpen,
-  onToggle,
-  onSelect,
-}: {
-  value: string
-  placeholder: string
-  options: Array<{ value: string | number; label: string }>
-  isOpen: boolean
-  onToggle: () => void
-  onSelect: (value: string | number) => void
-}) => (
-  <div className={`admin-custom-select ${isOpen ? 'is-open' : ''}`}>
-    <button type="button" className="admin-custom-select__trigger" onClick={onToggle}>
-      <span>{value || placeholder}</span>
-      <span className="admin-custom-select__arrow">▾</span>
-    </button>
+const statusFilterMatches = (isActive: boolean, filter: CommonStatusFilter) => {
+  if (filter === 'active') return isActive
+  if (filter === 'blocked') return !isActive
+  return true
+}
 
-    {isOpen ? (
-      <div className="admin-custom-select__dropdown">
-        {options.map((option) => (
-          <button
-            key={String(option.value)}
-            type="button"
-            className={`admin-custom-select__option ${value === option.label ? 'is-active' : ''}`}
-            onClick={() => onSelect(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    ) : null}
-  </div>
-)
-
-const renderPrimitiveBadge = (value: boolean) => (
-  <span className={`admin-badge ${value ? 'admin-badge--success' : 'admin-badge--danger'}`}>
-    {value ? 'Да' : 'Нет'}
-  </span>
-)
-
-const renderEntityButton = (label: string, onClick: () => void) => (
-  <button type="button" className="admin-entity-link" onClick={onClick}>
-    {label}
-  </button>
-)
-
-const renderSummaryField = (label: string, value: ReactNode) => (
-  <div className="admin-summary-item">
-    <span>{label}</span>
-    <div>{value}</div>
-  </div>
-)
+const uniqueStrings = (values: Array<string | null | undefined>) => {
+  return Array.from(new Set(values.map((item) => safeString(item).trim()).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, 'ru'),
+  )
+}
 
 const getVacancySkillNames = (value: unknown) => {
   const items = toArray<unknown>(value)
   return items
     .map((item) => {
       if (typeof item === 'string') return item
-      if (item && typeof item === 'object') {
-        return safeString((item as Record<string, unknown>).name)
-      }
+      if (item && typeof item === 'object') return safeString((item as Record<string, unknown>).name)
       return ''
     })
     .filter(Boolean)
 }
+
+const getUserLabel = (user: UserAdmin) => roleLabels[user.role] || 'Пользователь'
+
+const getDateValue = (value?: string | null) => {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const getPeriodStart = (period: DashboardPeriod) => {
+  if (period === 'all') return null
+
+  const daysByPeriod: Record<Exclude<DashboardPeriod, 'all'>, number> = {
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '365d': 365,
+  }
+
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  start.setDate(start.getDate() - daysByPeriod[period] + 1)
+
+  return start
+}
+
+const isWithinPeriod = (value: string | null | undefined, periodStart: Date | null) => {
+  if (!periodStart) return true
+  const date = getDateValue(value)
+  return Boolean(date && date >= periodStart)
+}
+
+const isWithinPeriodWithFallback = (
+  value: string | null | undefined,
+  fallbackValue: string | null | undefined,
+  periodStart: Date | null,
+) => {
+  if (!periodStart) return true
+  if (value) return isWithinPeriod(value, periodStart)
+  return isWithinPeriod(fallbackValue, periodStart)
+}
+
+const countByLabel = (labels: Array<string | null | undefined>, limit = 12): DashboardMetricItem[] => {
+  const result = labels.reduce<Record<string, number>>((acc, label) => {
+    const normalized = safeString(label).trim() || 'Не указано'
+    acc[normalized] = (acc[normalized] || 0) + 1
+    return acc
+  }, {})
+
+  return Object.entries(result)
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label, 'ru'))
+    .slice(0, limit)
+}
+
+const getProfessionIdFromResume = (resume: Record<string, unknown>) => {
+  const directId = safeNumber(resume.profession_id)
+  if (directId) return directId
+
+  const profession = resume.profession
+  if (profession && typeof profession === 'object') {
+    return safeNumber((profession as Record<string, unknown>).id)
+  }
+
+  return null
+}
+
+const getResumeProfessionName = (
+  resume: Record<string, unknown>,
+  professionById: Record<number, string>,
+) => {
+  const profession = resume.profession
+  if (profession && typeof profession === 'object') {
+    const name = safeString((profession as Record<string, unknown>).name)
+    if (name) return name
+  }
+
+  const professionId = getProfessionIdFromResume(resume)
+  if (professionId && professionById[professionId]) return professionById[professionId]
+
+  const explicitName =
+    safeString(resume.profession_name) ||
+    safeString(resume.profession_title) ||
+    safeString(resume.profession_label)
+
+  if (explicitName) return explicitName
+  if (professionId) return `Профессия #${professionId}`
+
+  return 'Не указано'
+}
+
+const buildRegistrations = (users: UserAdmin[], period: DashboardPeriod) => {
+  const periodStart = getPeriodStart(period)
+  const points = users.reduce<Record<string, { label: string; date: string; users: number; count: number }>>((acc, user) => {
+    const date = getDateValue(user.created_at)
+    if (!date) return acc
+    if (!isWithinPeriod(user.created_at, periodStart)) return acc
+
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const key = `${year}-${month}-${day}`
+    const label = `${day}.${month}`
+
+    if (!acc[key]) acc[key] = { label, date: key, users: 0, count: 0 }
+
+    acc[key].users += 1
+    acc[key].count += 1
+
+    return acc
+  }, {})
+
+  return Object.values(points).sort((a, b) => a.date.localeCompare(b.date))
+}
+
+const Modal = ({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode }) => {
+  return (
+    <div className="admin-modal" onClick={onClose}>
+      <div className="admin-modal__dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="admin-modal__header">
+          <div>
+            <div className="admin-modal__eyebrow">Администрирование</div>
+            <h3>{title}</h3>
+            {subtitle ? <p>{subtitle}</p> : null}
+          </div>
+          <button type="button" className="admin-modal__close" onClick={onClose}>×</button>
+        </div>
+        <div className="admin-modal__body">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+const FilterSelect = ({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: ReactNode }) => (
+  <label className="admin-filter-select">
+    <span>{label}</span>
+    <select value={value} onChange={(event) => onChange(event.target.value)}>{children}</select>
+  </label>
+)
+
+const SearchBox = ({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) => (
+  <label className="admin-search-box">
+    <span>Поиск</span>
+    <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+  </label>
+)
+
+const InlineAlert = ({ children, variant = 'danger' }: { children?: ReactNode; variant?: 'danger' | 'info' }) => {
+  if (!children) return null
+  return <div className={`admin-inline-alert admin-inline-alert--${variant}`}>{children}</div>
+}
+
+const FieldHint = ({ children, variant = 'muted' }: { children?: ReactNode; variant?: 'muted' | 'danger' }) => {
+  if (!children) return null
+  return <em className={`admin-field-hint admin-field-hint--${variant}`}>{children}</em>
+}
+
+const PasswordInput = ({
+  label,
+  value,
+  onChange,
+  placeholder,
+  helper,
+  error,
+  className = '',
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  helper?: ReactNode
+  error?: ReactNode
+  className?: string
+}) => {
+  const [isVisible, setIsVisible] = useState(false)
+
+  return (
+    <label className={`admin-field ${className}`.trim()}>
+      <span>{label}</span>
+      <div className="admin-password-field">
+        <input
+          className="admin-input admin-password-field__input"
+          type={isVisible ? 'text' : 'password'}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          className="admin-password-field__toggle"
+          onClick={() => setIsVisible((prev) => !prev)}
+          aria-label={isVisible ? 'Скрыть пароль' : 'Показать пароль'}
+          title={isVisible ? 'Скрыть пароль' : 'Показать пароль'}
+        >
+          <img src={isVisible ? hidePasswordIcon : showPasswordIcon} alt="" />
+        </button>
+      </div>
+      {error ? <FieldHint variant="danger">{error}</FieldHint> : <FieldHint>{helper}</FieldHint>}
+    </label>
+  )
+}
+
+const FilterPanel = ({ children }: { children: ReactNode }) => <div className="admin-filter-panel">{children}</div>
+
+const Pagination = ({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (page: number) => void }) => {
+  const pages = Math.max(Math.ceil(total / pageSize), 1)
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const end = Math.min(page * pageSize, total)
+
+  if (total <= pageSize) {
+    return total > 0 ? <div className="admin-pagination admin-pagination--single">Показано {total}</div> : null
+  }
+
+  const visiblePages = Array.from({ length: pages }, (_, index) => index + 1).filter((item) => {
+    return item === 1 || item === pages || Math.abs(item - page) <= 1
+  })
+
+  return (
+    <div className="admin-pagination">
+      <div className="admin-pagination__meta">Показано {start}–{end} из {total}</div>
+      <div className="admin-pagination__controls">
+        <button type="button" onClick={() => onChange(page - 1)} disabled={page <= 1}>Назад</button>
+        {visiblePages.map((item, index) => {
+          const prev = visiblePages[index - 1]
+          const withGap = prev && item - prev > 1
+          return (
+            <span key={item} className="admin-pagination__page-wrap">
+              {withGap ? <i>...</i> : null}
+              <button type="button" className={item === page ? 'is-active' : ''} onClick={() => onChange(item)}>{item}</button>
+            </span>
+          )
+        })}
+        <button type="button" onClick={() => onChange(page + 1)} disabled={page >= pages}>Вперёд</button>
+      </div>
+    </div>
+  )
+}
+
+const DashboardLineChart = ({ title, subtitle, points }: { title: string; subtitle: string; points: ChartPoint[] }) => {
+  const normalizedPoints = points.filter((item) => item.label)
+  const maxValue = Math.max(...normalizedPoints.map((item) => item.value), 1)
+  const niceMax = Math.max(1, Math.ceil(maxValue / 5) * 5)
+  const total = normalizedPoints.reduce((sum, item) => sum + item.value, 0)
+  const latest = normalizedPoints[normalizedPoints.length - 1]?.value ?? 0
+  const hasData = normalizedPoints.some((item) => item.value > 0)
+  const yTicks = Array.from(
+    new Set([niceMax, Math.round(niceMax * 0.75), Math.round(niceMax * 0.5), Math.round(niceMax * 0.25), 0]),
+  )
+  const chartTop = 8
+  const chartBottom = 92
+  const chartLeft = 4
+  const chartWidth = 92
+
+  const getY = (value: number) => chartBottom - (value / niceMax) * (chartBottom - chartTop)
+
+  const coordinates = normalizedPoints.map((point, index) => {
+    const denominator = Math.max(normalizedPoints.length - 1, 1)
+    const x = normalizedPoints.length === 1 ? 50 : chartLeft + (index / denominator) * chartWidth
+    const y = getY(point.value)
+    return { ...point, x, y }
+  })
+
+  const linePath = coordinates.map((item) => `${item.x},${item.y}`).join(' ')
+  const areaPath = coordinates.length
+    ? `M ${coordinates[0].x} ${chartBottom} L ${coordinates.map((item) => `${item.x} ${item.y}`).join(' L ')} L ${coordinates[coordinates.length - 1].x} ${chartBottom} Z`
+    : ''
+  const visibleXAxisLabels = coordinates.filter((_, index) => {
+    if (normalizedPoints.length <= 14) return true
+    return index === 0 || index === normalizedPoints.length - 1 || normalizedPoints[index].value > 0
+  })
+  const nonZeroPoints = normalizedPoints.filter((item) => item.value > 0)
+
+  return (
+    <div className="admin-chart-card">
+      <div className="admin-chart-card__head">
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <div className="admin-chart-card__meta">
+          <div className="admin-chart-card__metric"><span>Всего</span><strong>{formatCompactNumber(total)}</strong></div>
+          <div className="admin-chart-card__metric"><span>Последняя точка</span><strong>{formatCompactNumber(latest)}</strong></div>
+        </div>
+      </div>
+
+      {!hasData ? (
+        <div className="admin-chart-empty">Нет данных для отображения</div>
+      ) : (
+        <>
+          <div className="admin-line-chart">
+            <div className="admin-line-chart__y-axis">
+              {yTicks.map((item) => (
+                <span key={item}>{formatCompactNumber(item)}</span>
+              ))}
+            </div>
+            <div className="admin-line-chart__canvas">
+              <svg className="admin-line-chart__svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                {yTicks.map((tick) => {
+                  const y = getY(tick)
+                  return <line key={tick} x1="0" y1={y} x2="100" y2={y} className="admin-line-chart__grid" />
+                })}
+                <path d={areaPath} className="admin-line-chart__area" />
+                <polyline points={linePath} className="admin-line-chart__line" />
+              </svg>
+              <div className="admin-line-chart__points">
+                {coordinates.map((item) => (
+                  <div
+                    key={`${item.label}-${item.x}-${item.value}`}
+                    className={`admin-line-chart__point ${item.value > 0 ? 'has-value' : ''}`}
+                    style={{ left: `${item.x}%`, top: `${item.y}%` }}
+                    title={`${item.label}: ${item.value}`}
+                  >
+                    {item.value > 0 ? <strong>{item.value}<small>{item.label}</small></strong> : null}
+                    <span />
+                  </div>
+                ))}
+              </div>
+              <div className="admin-line-chart__x-axis">
+                {visibleXAxisLabels.map((item) => (
+                  <span key={`${item.label}-${item.x}`} style={{ left: `${item.x}%` }} title={`${item.label}: ${item.value}`}>
+                    {item.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="admin-line-chart__events" aria-label="Даты регистраций">
+            {nonZeroPoints.map((item) => (
+              <div key={`${item.label}-${item.value}`} className="admin-line-chart__event">
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+const DashboardBarChart = ({ title, subtitle, points }: { title: string; subtitle: string; points: ChartPoint[] }) => {
+  const normalizedPoints = points.filter((item) => item.label)
+  const max = Math.max(...normalizedPoints.map((item) => item.value), 1)
+  const total = normalizedPoints.reduce((sum, item) => sum + item.value, 0)
+  const hasData = normalizedPoints.some((item) => item.value > 0)
+
+  return (
+    <div className="admin-chart-card">
+      <div className="admin-chart-card__head">
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <div className="admin-chart-card__meta">
+          <div className="admin-chart-card__metric"><span>Категорий</span><strong>{normalizedPoints.length}</strong></div>
+          <div className="admin-chart-card__metric"><span>Всего</span><strong>{formatCompactNumber(total)}</strong></div>
+        </div>
+      </div>
+
+      {!hasData ? (
+        <div className="admin-chart-empty">Нет данных для отображения</div>
+      ) : (
+        <div className="admin-progress-chart">
+          {normalizedPoints.map((item, index) => {
+            const width = (item.value / max) * 100
+            const percent = getPercent(item.value, total)
+            return (
+              <div key={`${item.label}-${index}`} className="admin-progress-chart__row">
+                <div className="admin-progress-chart__meta">
+                  <div className="admin-progress-chart__text"><strong>{item.label}</strong><span>{percent}% от общего</span></div>
+                  <div className="admin-progress-chart__value">{formatCompactNumber(item.value)}</div>
+                </div>
+                <div className="admin-progress-chart__track">
+                  <div className="admin-progress-chart__fill" style={{ width: `${Math.max(width, item.value > 0 ? 5 : 0)}%` }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const ChartBlock = ({ title, subtitle, points, variant }: { title: string; subtitle: string; points: ChartPoint[]; variant: 'line' | 'bars' }) => {
+  if (variant === 'line') return <DashboardLineChart title={title} subtitle={subtitle} points={points} />
+  return <DashboardBarChart title={title} subtitle={subtitle} points={points} />
+}
+
+const renderPrimitiveBadge = (value: boolean) => (
+  <span className={`admin-badge ${value ? 'admin-badge--success' : 'admin-badge--danger'}`}>{value ? 'Да' : 'Нет'}</span>
+)
+
+const renderEntityButton = (label: string, onClick: () => void) => (
+  <button type="button" className="admin-entity-link" onClick={onClick}>{label}</button>
+)
+
+const renderSummaryField = (label: string, value: ReactNode) => (
+  <div className="admin-summary-item"><span>{label}</span><div>{value}</div></div>
+)
 
 export const AdminPage = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard')
+  const [pages, setPages] = useState<PageState>(defaultPages)
   const [selectedCatalog, setSelectedCatalog] = useState<CatalogKey>('cities')
   const [newCatalogName, setNewCatalogName] = useState('')
   const [editingCatalogId, setEditingCatalogId] = useState<number | null>(null)
   const [editingCatalogName, setEditingCatalogName] = useState('')
   const [message, setMessage] = useState('Управляйте платформой централизованно.')
   const [search, setSearch] = useState('')
+  const [catalogSearch, setCatalogSearch] = useState('')
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null)
-  const [catalogSelectOpen, setCatalogSelectOpen] = useState(false)
-
+  const [dashboardChart, setDashboardChart] = useState<DashboardChartKey>('registrations')
+  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>('30d')
+  const [professionChartSource, setProfessionChartSource] = useState<ProfessionChartSource>('vacancies')
+  const [adminStatusFilter, setAdminStatusFilter] = useState<CommonStatusFilter>('all')
+  const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('all')
+  const [userStatusFilter, setUserStatusFilter] = useState<CommonStatusFilter>('all')
+  const [companyStatusFilter, setCompanyStatusFilter] = useState<CommonStatusFilter>('all')
+  const [companyCityFilter, setCompanyCityFilter] = useState('all')
+  const [companyTypeFilter, setCompanyTypeFilter] = useState('all')
+  const [applicantStatusFilter, setApplicantStatusFilter] = useState<CommonStatusFilter>('all')
+  const [applicantCityFilter, setApplicantCityFilter] = useState('all')
+  const [applicantResumeFilter, setApplicantResumeFilter] = useState<ResumeFilter>('all')
+  const [vacancyStatusFilter, setVacancyStatusFilter] = useState('all')
+  const [vacancyCityFilter, setVacancyCityFilter] = useState('all')
+  const [vacancyProfessionFilter, setVacancyProfessionFilter] = useState('all')
+  const [vacancySalaryFilter, setVacancySalaryFilter] = useState<SalaryFilter>('all')
+  const [applicationStatusFilter, setApplicationStatusFilter] = useState('all')
+  const [applicationCompanyFilter, setApplicationCompanyFilter] = useState('all')
   const [isCreateAdminOpen, setIsCreateAdminOpen] = useState(false)
   const [editingAdmin, setEditingAdmin] = useState<AdminListItem | null>(null)
   const [deletingAdmin, setDeletingAdmin] = useState<AdminListItem | null>(null)
-
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
-
   const [editAdminEmail, setEditAdminEmail] = useState('')
   const [editAdminPassword, setEditAdminPassword] = useState('')
   const [editAdminIsActive, setEditAdminIsActive] = useState(true)
   const [editAdminCurrentPassword, setEditAdminCurrentPassword] = useState('')
-
   const [deleteAdminCurrentPassword, setDeleteAdminCurrentPassword] = useState('')
-
   const [isSelfSettingsOpen, setIsSelfSettingsOpen] = useState(false)
   const [selfEmail, setSelfEmail] = useState('')
   const [selfNewPassword, setSelfNewPassword] = useState('')
   const [selfCurrentPassword, setSelfCurrentPassword] = useState('')
+  const [formError, setFormError] = useState('')
 
   useEffect(() => {
-    const handleDocumentClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement
-      if (!target.closest('.admin-custom-select')) {
-        setCatalogSelectOpen(false)
-      }
-    }
-
-    document.addEventListener('click', handleDocumentClick)
-    return () => document.removeEventListener('click', handleDocumentClick)
-  }, [])
-
-  useEffect(() => {
-    const hasModal =
-      !!detailTarget ||
-      isCreateAdminOpen ||
-      !!editingAdmin ||
-      !!deletingAdmin ||
-      isSelfSettingsOpen
-
+    const hasModal = !!detailTarget || isCreateAdminOpen || !!editingAdmin || !!deletingAdmin || isSelfSettingsOpen
     document.body.style.overflow = hasModal ? 'hidden' : ''
-
-    return () => {
-      document.body.style.overflow = ''
-    }
+    return () => { document.body.style.overflow = '' }
   }, [detailTarget, isCreateAdminOpen, editingAdmin, deletingAdmin, isSelfSettingsOpen])
 
-  const authMeQuery = useQuery({
-    queryKey: ['admin-auth-me'],
-    queryFn: fetchAuthMe,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
+  const setPage = (tab: TabKey, page: number) => setPages((prev) => ({ ...prev, [tab]: Math.max(page, 1) }))
+  const resetPage = (tab: TabKey = activeTab) => setPage(tab, 1)
 
-  const dashboardQuery = useQuery({
-    queryKey: ['admin-dashboard'],
-    queryFn: fetchDashboard,
+  const authMeQuery = useQuery({ queryKey: ['admin-auth-me'], queryFn: fetchAuthMe, retry: false, refetchOnWindowFocus: false })
+  const dashboardQuery = useQuery({ queryKey: ['admin-dashboard', dashboardPeriod], queryFn: () => fetchDashboard(dashboardPeriod), retry: false, refetchOnWindowFocus: false })
+  const adminsQuery = useQuery({ queryKey: ['admin-admins'], queryFn: fetchAdmins, retry: false, refetchOnWindowFocus: false })
+  const usersQuery = useQuery({ queryKey: ['admin-users'], queryFn: fetchUsers, retry: false, refetchOnWindowFocus: false })
+  const companiesQuery = useQuery({ queryKey: ['admin-companies'], queryFn: fetchCompanies, retry: false, refetchOnWindowFocus: false })
+  const applicantsQuery = useQuery({ queryKey: ['admin-applicants'], queryFn: fetchApplicants, retry: false, refetchOnWindowFocus: false })
+  const vacanciesQuery = useQuery({ queryKey: ['admin-vacancies'], queryFn: fetchVacancies, retry: false, refetchOnWindowFocus: false })
+  const applicationsQuery = useQuery({ queryKey: ['admin-applications'], queryFn: fetchApplications, retry: false, refetchOnWindowFocus: false })
+  const statusesQuery = useQuery({ queryKey: ['admin-statuses'], queryFn: () => fetchCatalog('statuses'), retry: false, refetchOnWindowFocus: false })
+  const professionsQuery = useQuery({ queryKey: ['admin-professions'], queryFn: () => fetchCatalog('professions'), retry: false, refetchOnWindowFocus: false })
+  const applicantDetailsForResumesQuery = useQuery({
+    queryKey: ['admin-applicant-details-for-resumes', applicantsQuery.data?.map((item) => item.id).join(',') || 'empty'],
+    queryFn: () => fetchApplicantDetailsForResumes(applicantsQuery.data || []),
+    enabled: Boolean(applicantsQuery.data?.length),
     retry: false,
     refetchOnWindowFocus: false,
   })
+  const selectedCatalogQuery = useQuery({ queryKey: ['admin-catalog', selectedCatalog], queryFn: () => fetchCatalog(selectedCatalog), retry: false, refetchOnWindowFocus: false })
 
-  const adminsQuery = useQuery({
-    queryKey: ['admin-admins'],
-    queryFn: fetchAdmins,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
+  const userDetailQuery = useQuery({ queryKey: ['admin-user-detail', detailTarget?.kind === 'user' ? detailTarget.id : null], queryFn: () => fetchUserDetail((detailTarget as { kind: 'user'; id: number }).id), enabled: detailTarget?.kind === 'user', retry: false, refetchOnWindowFocus: false })
+  const companyDetailQuery = useQuery({ queryKey: ['admin-company-detail', detailTarget?.kind === 'company' ? detailTarget.id : null], queryFn: () => fetchCompanyDetail((detailTarget as { kind: 'company'; id: number }).id), enabled: detailTarget?.kind === 'company', retry: false, refetchOnWindowFocus: false })
+  const applicantDetailQuery = useQuery({ queryKey: ['admin-applicant-detail', detailTarget?.kind === 'applicant' ? detailTarget.id : null], queryFn: () => fetchApplicantDetail((detailTarget as { kind: 'applicant'; id: number }).id), enabled: detailTarget?.kind === 'applicant', retry: false, refetchOnWindowFocus: false })
+  const vacancyDetailQuery = useQuery({ queryKey: ['admin-vacancy-detail', detailTarget?.kind === 'vacancy' ? detailTarget.id : null], queryFn: () => fetchVacancyDetail((detailTarget as { kind: 'vacancy'; id: number }).id), enabled: detailTarget?.kind === 'vacancy', retry: false, refetchOnWindowFocus: false })
+  const applicationDetailQuery = useQuery({ queryKey: ['admin-application-detail', detailTarget?.kind === 'application' ? detailTarget.vacancyId : null, detailTarget?.kind === 'application' ? detailTarget.resumeId : null], queryFn: () => fetchApplicationDetail((detailTarget as { kind: 'application'; vacancyId: number; resumeId: number }).vacancyId, (detailTarget as { kind: 'application'; vacancyId: number; resumeId: number }).resumeId), enabled: detailTarget?.kind === 'application', retry: false, refetchOnWindowFocus: false })
+  const adminDetailQuery = useQuery({ queryKey: ['admin-detail', detailTarget?.kind === 'admin' ? detailTarget.id : null], queryFn: () => fetchAdminDetail((detailTarget as { kind: 'admin'; id: number }).id), enabled: detailTarget?.kind === 'admin', retry: false, refetchOnWindowFocus: false })
 
-  const usersQuery = useQuery({
-    queryKey: ['admin-users'],
-    queryFn: fetchUsers,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
+  const isRootAdmin = authMeQuery.data?.id === 1
 
-  const companiesQuery = useQuery({
-    queryKey: ['admin-companies'],
-    queryFn: fetchCompanies,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
+  const invalidateDashboard = async () => { await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] }) }
 
-  const applicantsQuery = useQuery({
-    queryKey: ['admin-applicants'],
-    queryFn: fetchApplicants,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const vacanciesQuery = useQuery({
-    queryKey: ['admin-vacancies'],
-    queryFn: fetchVacancies,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const applicationsQuery = useQuery({
-    queryKey: ['admin-applications'],
-    queryFn: fetchApplications,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const statusesQuery = useQuery({
-    queryKey: ['admin-statuses'],
-    queryFn: () => fetchCatalog('statuses'),
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const selectedCatalogQuery = useQuery({
-    queryKey: ['admin-catalog', selectedCatalog],
-    queryFn: () => fetchCatalog(selectedCatalog),
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const userDetailQuery = useQuery({
-    queryKey: ['admin-user-detail', detailTarget?.kind === 'user' ? detailTarget.id : null],
-    queryFn: () => fetchUserDetail((detailTarget as { kind: 'user'; id: number }).id),
-    enabled: detailTarget?.kind === 'user',
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const companyDetailQuery = useQuery({
-    queryKey: ['admin-company-detail', detailTarget?.kind === 'company' ? detailTarget.id : null],
-    queryFn: () => fetchCompanyDetail((detailTarget as { kind: 'company'; id: number }).id),
-    enabled: detailTarget?.kind === 'company',
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const applicantDetailQuery = useQuery({
-    queryKey: ['admin-applicant-detail', detailTarget?.kind === 'applicant' ? detailTarget.id : null],
-    queryFn: () => fetchApplicantDetail((detailTarget as { kind: 'applicant'; id: number }).id),
-    enabled: detailTarget?.kind === 'applicant',
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const vacancyDetailQuery = useQuery({
-    queryKey: ['admin-vacancy-detail', detailTarget?.kind === 'vacancy' ? detailTarget.id : null],
-    queryFn: () => fetchVacancyDetail((detailTarget as { kind: 'vacancy'; id: number }).id),
-    enabled: detailTarget?.kind === 'vacancy',
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const applicationDetailQuery = useQuery({
-    queryKey: [
-      'admin-application-detail',
-      detailTarget?.kind === 'application' ? detailTarget.vacancyId : null,
-      detailTarget?.kind === 'application' ? detailTarget.resumeId : null,
-    ],
-    queryFn: () =>
-      fetchApplicationDetail(
-        (detailTarget as { kind: 'application'; vacancyId: number; resumeId: number }).vacancyId,
-        (detailTarget as { kind: 'application'; vacancyId: number; resumeId: number }).resumeId,
-      ),
-    enabled: detailTarget?.kind === 'application',
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
-
-  const adminDetailQuery = useQuery({
-    queryKey: ['admin-detail', detailTarget?.kind === 'admin' ? detailTarget.id : null],
-    queryFn: () => fetchAdminDetail((detailTarget as { kind: 'admin'; id: number }).id),
-    enabled: detailTarget?.kind === 'admin',
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
+  const setHandledError = (error: unknown, fallback: string) => {
+    const text = getErrorMessage(error, fallback)
+    setFormError(text)
+    setMessage(text)
+  }
 
   const toggleUserMutation = useMutation({
     mutationFn: async (user: UserAdmin) => {
-      await http.patch(`/admin/users/${user.id}/status`, {
-        is_active: !user.is_active,
-      })
+      if (user.id === 1) throw new Error('Главного администратора нельзя заблокировать.')
+      await http.patch(`/admin/users/${user.id}/status`, { is_active: !user.is_active })
     },
     onSuccess: async () => {
       setMessage('Статус пользователя обновлён.')
       await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
+      await invalidateDashboard()
     },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось изменить статус пользователя.'))
-    },
+    onError: (error) => setHandledError(error, 'Не удалось изменить статус пользователя.'),
   })
-
-  const toggleCompanyMutation = useMutation({
-    mutationFn: async (company: CompanyAdmin) => {
-      await http.patch(`/admin/companies/${company.id}/status`, {
-        is_active: !company.is_active,
-      })
-    },
-    onSuccess: async () => {
-      setMessage('Статус компании обновлён.')
-      await queryClient.invalidateQueries({ queryKey: ['admin-companies'] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
-    },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось обновить статус компании.'))
-    },
-  })
-
-  const toggleApplicantMutation = useMutation({
-    mutationFn: async (applicant: ApplicantAdmin) => {
-      await http.patch(`/admin/applicants/${applicant.id}/status`, {
-        is_active: !applicant.is_active,
-      })
-    },
-    onSuccess: async () => {
-      setMessage('Статус соискателя обновлён.')
-      await queryClient.invalidateQueries({ queryKey: ['admin-applicants'] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
-    },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось обновить статус соискателя.'))
-    },
-  })
-
-  const updateVacancyStatusMutation = useMutation({
-    mutationFn: async (params: { vacancyId: number; statusId: number }) => {
-      await http.patch(`/admin/vacancies/${params.vacancyId}/status`, {
-        status_id: params.statusId,
-      })
-    },
-    onSuccess: async () => {
-      setMessage('Статус вакансии обновлён.')
-      await queryClient.invalidateQueries({ queryKey: ['admin-vacancies'] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
-    },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось обновить статус вакансии.'))
-    },
-  })
-
-  const updateApplicationStatusMutation = useMutation({
-    mutationFn: async (params: { vacancyId: number; resumeId: number; status: string }) => {
-      await http.patch(`/admin/applications/${params.vacancyId}/${params.resumeId}`, {
-        status: params.status,
-      })
-    },
-    onSuccess: async () => {
-      setMessage('Статус отклика обновлён.')
-      await queryClient.invalidateQueries({ queryKey: ['admin-applications'] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
-    },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось обновить статус отклика.'))
-    },
-  })
-
-  const createCatalogItemMutation = useMutation({
-    mutationFn: async () => {
-      await http.post(`/admin/catalogs/${selectedCatalog}`, {
-        name: newCatalogName.trim(),
-      })
-    },
-    onSuccess: async () => {
-      setNewCatalogName('')
-      setMessage('Элемент справочника создан.')
-      await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] })
-    },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось создать элемент справочника.'))
-    },
-  })
-
-  const updateCatalogItemMutation = useMutation({
-    mutationFn: async (itemId: number) => {
-      await http.put(`/admin/catalogs/${selectedCatalog}/${itemId}`, {
-        name: editingCatalogName.trim(),
-      })
-    },
-    onSuccess: async () => {
-      setEditingCatalogId(null)
-      setEditingCatalogName('')
-      setMessage('Элемент справочника обновлён.')
-      await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] })
-    },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось обновить элемент справочника.'))
-    },
-  })
-
-  const deleteCatalogItemMutation = useMutation({
-    mutationFn: async (itemId: number) => {
-      await http.delete(`/admin/catalogs/${selectedCatalog}/${itemId}`)
-    },
-    onSuccess: async () => {
-      setMessage('Элемент справочника удалён.')
-      await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] })
-    },
-    onError: (error) => {
-      setMessage(
-        getErrorMessage(
-          error,
-          'Не удалось удалить элемент справочника. Возможно, он уже используется.',
-        ),
-      )
-    },
-  })
-
+  const toggleCompanyMutation = useMutation({ mutationFn: async (company: CompanyAdmin) => { await http.patch(`/admin/companies/${company.id}/status`, { is_active: !company.is_active }) }, onSuccess: async () => { setMessage('Статус компании обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-companies'] }); await invalidateDashboard() }, onError: (error) => setHandledError(error, 'Не удалось обновить статус компании.') })
+  const toggleApplicantMutation = useMutation({ mutationFn: async (applicant: ApplicantAdmin) => { await http.patch(`/admin/applicants/${applicant.id}/status`, { is_active: !applicant.is_active }) }, onSuccess: async () => { setMessage('Статус соискателя обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-applicants'] }); await invalidateDashboard() }, onError: (error) => setHandledError(error, 'Не удалось обновить статус соискателя.') })
+  const updateVacancyStatusMutation = useMutation({ mutationFn: async (params: { vacancyId: number; statusId: number }) => { await http.patch(`/admin/vacancies/${params.vacancyId}/status`, { status_id: params.statusId }) }, onSuccess: async () => { setMessage('Статус вакансии обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-vacancies'] }); await invalidateDashboard() }, onError: (error) => setHandledError(error, 'Не удалось обновить статус вакансии.') })
+  const updateApplicationStatusMutation = useMutation({ mutationFn: async (params: { vacancyId: number; resumeId: number; status: string }) => { await http.patch(`/admin/applications/${params.vacancyId}/${params.resumeId}`, { status: params.status }) }, onSuccess: async () => { setMessage('Статус отклика обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-applications'] }); await invalidateDashboard() }, onError: (error) => setHandledError(error, 'Не удалось обновить статус отклика.') })
+  const createCatalogItemMutation = useMutation({ mutationFn: async () => { await http.post(`/admin/catalogs/${selectedCatalog}`, { name: newCatalogName.trim() }) }, onSuccess: async () => { setNewCatalogName(''); setMessage('Элемент справочника создан.'); await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] }) }, onError: (error) => setHandledError(error, 'Не удалось создать элемент справочника.') })
+  const updateCatalogItemMutation = useMutation({ mutationFn: async (itemId: number) => { await http.put(`/admin/catalogs/${selectedCatalog}/${itemId}`, { name: editingCatalogName.trim() }) }, onSuccess: async () => { setEditingCatalogId(null); setEditingCatalogName(''); setMessage('Элемент справочника обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] }) }, onError: (error) => setHandledError(error, 'Не удалось обновить элемент справочника.') })
+  const deleteCatalogItemMutation = useMutation({ mutationFn: async (itemId: number) => { await http.delete(`/admin/catalogs/${selectedCatalog}/${itemId}`) }, onSuccess: async () => { setMessage('Элемент справочника удалён.'); await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] }) }, onError: (error) => setHandledError(error, 'Не удалось удалить элемент справочника. Возможно, он уже используется.') })
   const createAdminMutation = useMutation({
     mutationFn: async () => {
-      await http.post('/admin/admins', {
-        email: newAdminEmail.trim(),
-        password: newAdminPassword,
-      })
+      await http.post('/admin/admins', { email: newAdminEmail.trim(), password: newAdminPassword })
     },
     onSuccess: async () => {
       setNewAdminEmail('')
       setNewAdminPassword('')
+      setFormError('')
       setIsCreateAdminOpen(false)
       setMessage('Новый администратор создан.')
       await queryClient.invalidateQueries({ queryKey: ['admin-admins'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
+      await invalidateDashboard()
     },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось создать администратора.'))
-    },
+    onError: (error) => setHandledError(error, 'Не удалось создать администратора.'),
   })
-
   const updateAdminMutation = useMutation({
     mutationFn: async (adminId: number) => {
+      if (adminId === 1 && !editAdminIsActive) throw new Error('Главного администратора нельзя заблокировать.')
       await http.patch(`/admin/admins/${adminId}`, {
         email: editAdminEmail.trim(),
         new_password: editAdminPassword.trim() || null,
-        is_active: editAdminIsActive,
+        is_active: adminId === 1 ? true : editAdminIsActive,
         current_admin_password: editAdminCurrentPassword,
       })
     },
@@ -935,291 +1248,464 @@ export const AdminPage = () => {
       setEditAdminEmail('')
       setEditAdminPassword('')
       setEditAdminCurrentPassword('')
+      setFormError('')
       setMessage('Администратор обновлён.')
       await queryClient.invalidateQueries({ queryKey: ['admin-admins'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
+      await invalidateDashboard()
     },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось обновить администратора.'))
-    },
+    onError: (error) => setHandledError(error, 'Не удалось обновить администратора.'),
   })
-
   const deleteAdminMutation = useMutation({
     mutationFn: async (adminId: number) => {
-      await http.delete(`/admin/admins/${adminId}`, {
-        data: {
-          current_admin_password: deleteAdminCurrentPassword,
-        },
-      })
+      if (adminId === 1) throw new Error('Главного администратора нельзя удалить.')
+      await http.delete(`/admin/admins/${adminId}`, { data: { current_admin_password: deleteAdminCurrentPassword } })
     },
     onSuccess: async () => {
       setDeletingAdmin(null)
       setDeleteAdminCurrentPassword('')
+      setFormError('')
       setMessage('Администратор удалён.')
       await queryClient.invalidateQueries({ queryKey: ['admin-admins'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] })
+      await invalidateDashboard()
     },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось удалить администратора.'))
-    },
+    onError: (error) => setHandledError(error, 'Не удалось удалить администратора.'),
   })
 
   const updateSelfSettingsMutation = useMutation({
     mutationFn: async () => {
-      if (!authMeQuery.data?.id) {
-        throw new Error('Не удалось определить текущего администратора')
-      }
-
+      if (!authMeQuery.data?.id) throw new Error('Не удалось определить текущего администратора')
       const normalizedEmail = selfEmail.trim()
       const currentEmail = authMeQuery.data.email || ''
       const passwordChanged = selfNewPassword.trim().length > 0
       const emailChanged = normalizedEmail !== currentEmail
-
-      if (!emailChanged && !passwordChanged) {
-        throw new Error('Нет изменений для сохранения')
-      }
-
-      if (!selfCurrentPassword.trim()) {
-        throw new Error('Введите текущий пароль')
-      }
-
-      if (passwordChanged && selfNewPassword.trim().length < 8) {
-        throw new Error('Новый пароль должен содержать минимум 8 символов')
-      }
-
-      await http.patch(`/admin/admins/${authMeQuery.data.id}`, {
-        email: normalizedEmail,
-        new_password: passwordChanged ? selfNewPassword.trim() : null,
-        is_active: authMeQuery.data.is_active ?? true,
-        current_admin_password: selfCurrentPassword,
-      })
-
+      if (!emailChanged && !passwordChanged) throw new Error('Нет изменений для сохранения')
+      if (!selfCurrentPassword.trim()) throw new Error('Введите текущий пароль')
+      if (passwordChanged && selfNewPassword.trim().length < 8) throw new Error('Новый пароль должен содержать минимум 8 символов')
+      await http.patch(`/admin/admins/${authMeQuery.data.id}`, { email: normalizedEmail, new_password: passwordChanged ? selfNewPassword.trim() : null, is_active: authMeQuery.data.is_active ?? true, current_admin_password: selfCurrentPassword })
       return { passwordChanged }
     },
     onSuccess: async ({ passwordChanged }) => {
-      setMessage(
-        passwordChanged
-          ? 'Данные обновлены. После смены пароля нужно войти заново.'
-          : 'Данные администратора обновлены.',
-      )
-
+      setMessage(passwordChanged ? 'Данные обновлены. После смены пароля нужно войти заново.' : 'Данные администратора обновлены.')
       setIsSelfSettingsOpen(false)
       setSelfCurrentPassword('')
       setSelfNewPassword('')
-
+      setFormError('')
       await queryClient.invalidateQueries({ queryKey: ['admin-auth-me'] })
       await queryClient.invalidateQueries({ queryKey: ['admin-admins'] })
-
-      if (passwordChanged) {
-        authSession.clear()
-        navigate('/admin/login', { replace: true })
-      }
+      if (passwordChanged) { authSession.clear(); navigate('/admin/login', { replace: true }) }
     },
-    onError: (error) => {
-      setMessage(getErrorMessage(error, 'Не удалось обновить данные администратора.'))
-    },
+    onError: (error) => setHandledError(error, 'Не удалось обновить данные администратора.'),
   })
 
-  const filteredAdmins = useMemo(() => {
-    const value = search.trim().toLowerCase()
-    if (!value) return adminsQuery.data || []
+  const selectedCatalogLabel = useMemo(() => catalogDefinitions.find((item) => item.key === selectedCatalog)?.label || 'Справочник', [selectedCatalog])
 
-    return (adminsQuery.data || []).filter((item) => {
-      return item.email.toLowerCase().includes(value) || String(item.id).includes(value)
+  const periodStart = useMemo(() => getPeriodStart(dashboardPeriod), [dashboardPeriod])
+
+  const periodUsers = useMemo(() => {
+    return (usersQuery.data || []).filter((item) => isWithinPeriod(item.created_at, periodStart))
+  }, [usersQuery.data, periodStart])
+
+  const periodAdmins = useMemo(() => {
+    return (adminsQuery.data || []).filter((item) => isWithinPeriod(item.created_at, periodStart))
+  }, [adminsQuery.data, periodStart])
+
+  const periodCompanies = useMemo(() => {
+    const users = usersQuery.data || []
+
+    return (companiesQuery.data || []).filter((company) => {
+      const linkedUser = users.find((user) => {
+        return user.company_id === company.id || Boolean(company.user_id && user.id === company.user_id)
+      })
+
+      return isWithinPeriodWithFallback(company.created_at, linkedUser?.created_at, periodStart)
     })
-  }, [search, adminsQuery.data])
+  }, [companiesQuery.data, usersQuery.data, periodStart])
 
-  const filteredUsers = useMemo(() => {
-    const value = search.trim().toLowerCase()
-    if (!value) return usersQuery.data || []
+  const periodApplicants = useMemo(() => {
+    const users = usersQuery.data || []
 
-    return (usersQuery.data || []).filter((item) => {
-      return (
-        item.email.toLowerCase().includes(value) ||
-        item.role.toLowerCase().includes(value) ||
-        String(item.id).includes(value)
-      )
+    return (applicantsQuery.data || []).filter((applicant) => {
+      const linkedUser = users.find((user) => user.applicant_id === applicant.id)
+      return isWithinPeriodWithFallback(applicant.created_at, linkedUser?.created_at, periodStart)
     })
-  }, [search, usersQuery.data])
+  }, [applicantsQuery.data, usersQuery.data, periodStart])
 
-  const filteredCompanies = useMemo(() => {
-    const value = search.trim().toLowerCase()
-    if (!value) return companiesQuery.data || []
+  const periodVacancies = useMemo(() => {
+    return (vacanciesQuery.data || []).filter((item) => isWithinPeriod(item.created_at, periodStart))
+  }, [vacanciesQuery.data, periodStart])
 
-    return (companiesQuery.data || []).filter((item) => {
-      return (
-        item.name.toLowerCase().includes(value) ||
-        safeString(item.website).toLowerCase().includes(value) ||
-        String(item.id).includes(value)
-      )
+  const periodApplications = useMemo(() => {
+    return (applicationsQuery.data || []).filter((item) => isWithinPeriod(item.created_at, periodStart))
+  }, [applicationsQuery.data, periodStart])
+
+  const professionById = useMemo(() => {
+    return (professionsQuery.data || []).reduce<Record<number, string>>((acc, item) => {
+      acc[item.id] = item.name
+      return acc
+    }, {})
+  }, [professionsQuery.data])
+
+  const resumeSourceApplicants = applicantDetailsForResumesQuery.data || applicantsQuery.data || []
+
+  const periodResumes = useMemo(() => {
+    return resumeSourceApplicants.flatMap((applicant) => {
+      return toArray<Record<string, unknown>>(applicant.resumes)
+        .filter((resume) => {
+          const resumeCreatedAt = safeString(resume.created_at) || null
+          return isWithinPeriodWithFallback(resumeCreatedAt, applicant.created_at, periodStart)
+        })
+        .map((resume) => ({ applicant, resume }))
     })
-  }, [search, companiesQuery.data])
+  }, [resumeSourceApplicants, periodStart])
 
-  const filteredApplicants = useMemo(() => {
-    const value = search.trim().toLowerCase()
-    if (!value) return applicantsQuery.data || []
+  const dashboard = useMemo<DashboardResponse>(() => {
+    const rawDashboard = dashboardQuery.data || {}
+    const hasClientData = Boolean(
+      usersQuery.data || companiesQuery.data || applicantsQuery.data || vacanciesQuery.data || applicationsQuery.data,
+    )
 
-    return (applicantsQuery.data || []).filter((item) => {
-      return (
-        item.full_name.toLowerCase().includes(value) ||
-        safeString(item.phone).toLowerCase().includes(value) ||
-        safeString(item.email).toLowerCase().includes(value) ||
-        String(item.id).includes(value)
-      )
-    })
-  }, [search, applicantsQuery.data])
+    if (!hasClientData && dashboardPeriod === 'all') {
+      return rawDashboard
+    }
 
-  const filteredVacancies = useMemo(() => {
-    const value = search.trim().toLowerCase()
-    if (!value) return vacanciesQuery.data || []
+    const usersByRole = periodUsers.reduce<Record<string, number>>((acc, item) => {
+      acc[item.role] = (acc[item.role] || 0) + 1
+      return acc
+    }, {})
 
-    return (vacanciesQuery.data || []).filter((item) => {
-      return (
-        item.title.toLowerCase().includes(value) ||
-        safeString(item.description).toLowerCase().includes(value) ||
-        safeString(item.company_name).toLowerCase().includes(value) ||
-        String(item.id).includes(value)
-      )
-    })
-  }, [search, vacanciesQuery.data])
+    const applicationsByStatus = periodApplications.reduce<Record<string, number>>((acc, item) => {
+      acc[item.status] = (acc[item.status] || 0) + 1
+      return acc
+    }, {})
 
-  const filteredApplications = useMemo(() => {
-    const value = search.trim().toLowerCase()
-    if (!value) return applicationsQuery.data || []
-
-    return (applicationsQuery.data || []).filter((item) => {
-      return (
-        safeString(item.vacancy_title).toLowerCase().includes(value) ||
-        safeString(item.company_name).toLowerCase().includes(value) ||
-        safeString(item.resume_profession).toLowerCase().includes(value) ||
-        safeString(item.applicant_name).toLowerCase().includes(value) ||
-        String(item.vacancy_id).includes(value) ||
-        String(item.resume_id).includes(value)
-      )
-    })
-  }, [search, applicationsQuery.data])
-
-  const fallbackStats = useMemo(() => {
     return {
-      users_total: usersQuery.data?.length ?? 0,
-      users_active: usersQuery.data?.filter((item) => item.is_active).length ?? 0,
-      companies_total: companiesQuery.data?.length ?? 0,
-      applicants_total: applicantsQuery.data?.length ?? 0,
-      vacancies_total: vacanciesQuery.data?.length ?? 0,
-      applications_total: applicationsQuery.data?.length ?? 0,
+      users_total: periodUsers.length,
+      users_active: periodUsers.filter((item) => item.is_active).length,
+      users_blocked: periodUsers.filter((item) => !item.is_active).length,
+      companies_total: periodCompanies.length,
+      applicants_total: periodApplicants.length,
+      vacancies_total: periodVacancies.length,
+      applications_total: periodApplications.length,
+      admins_total: periodAdmins.length,
+      users_by_role: usersByRole,
+      applications_by_status: applicationsByStatus,
+      registrations: buildRegistrations(periodUsers, dashboardPeriod),
+      top_cities: countByLabel(periodApplicants.map((item) => item.city_name)),
+      top_professions: countByLabel(
+        periodVacancies.map((item) => {
+          if (item.profession_id && professionById[item.profession_id]) return professionById[item.profession_id]
+          return item.profession_name || item.title
+        }),
+      ),
     }
   }, [
+    dashboardQuery.data,
     usersQuery.data,
     companiesQuery.data,
     applicantsQuery.data,
     vacanciesQuery.data,
     applicationsQuery.data,
+    dashboardPeriod,
+    periodUsers,
+    periodAdmins,
+    periodCompanies,
+    periodApplicants,
+    periodVacancies,
+    periodApplications,
+    professionById,
   ])
 
-  const dashboard = {
-    ...fallbackStats,
-    ...(dashboardQuery.data || {}),
-  }
+  const resumeProfessionPoints = useMemo(() => {
+    return countByLabel(periodResumes.map(({ resume }) => getResumeProfessionName(resume, professionById)))
+  }, [periodResumes, professionById])
 
-  const selectedCatalogLabel = useMemo(() => {
-    return catalogDefinitions.find((item) => item.key === selectedCatalog)?.label || 'Справочник'
-  }, [selectedCatalog])
+  const vacancyProfessionPoints = useMemo(() => {
+    return countByLabel(
+      periodVacancies.map((item) => {
+        if (item.profession_id && professionById[item.profession_id]) return professionById[item.profession_id]
+        return item.profession_name || item.title
+      }),
+    )
+  }, [periodVacancies, professionById])
 
-  const detailData =
-    detailTarget?.kind === 'admin'
-      ? adminDetailQuery.data
-      : detailTarget?.kind === 'user'
-        ? userDetailQuery.data
-        : detailTarget?.kind === 'company'
-          ? companyDetailQuery.data
-          : detailTarget?.kind === 'applicant'
-            ? applicantDetailQuery.data
-            : detailTarget?.kind === 'vacancy'
-              ? vacancyDetailQuery.data
-              : detailTarget?.kind === 'application'
-                ? applicationDetailQuery.data
-                : null
+  const companyCityOptions = useMemo(() => uniqueStrings((companiesQuery.data || []).flatMap((item) => item.cities || [])), [companiesQuery.data])
+  const companyTypeOptions = useMemo(() => uniqueStrings((companiesQuery.data || []).map((item) => item.company_type_name)), [companiesQuery.data])
+  const applicantCityOptions = useMemo(() => uniqueStrings((applicantsQuery.data || []).map((item) => item.city_name)), [applicantsQuery.data])
+  const vacancyStatusOptions = useMemo(() => uniqueStrings((vacanciesQuery.data || []).map((item) => item.status_name)), [vacanciesQuery.data])
+  const vacancyCityOptions = useMemo(() => uniqueStrings((vacanciesQuery.data || []).map((item) => item.city_name)), [vacanciesQuery.data])
+  const vacancyProfessionOptions = useMemo(() => uniqueStrings((vacanciesQuery.data || []).map((item) => item.profession_name)), [vacanciesQuery.data])
+  const applicationCompanyOptions = useMemo(() => uniqueStrings((applicationsQuery.data || []).map((item) => item.company_name)), [applicationsQuery.data])
+  const applicationStatusOptions = useMemo(() => uniqueStrings((applicationsQuery.data || []).map((item) => item.status)), [applicationsQuery.data])
 
-  const detailLoading =
-    adminDetailQuery.isLoading ||
-    userDetailQuery.isLoading ||
-    companyDetailQuery.isLoading ||
-    applicantDetailQuery.isLoading ||
-    vacancyDetailQuery.isLoading ||
-    applicationDetailQuery.isLoading
+  const filteredCatalogItems = useMemo(() => {
+    const value = catalogSearch.trim().toLowerCase()
+    const items = selectedCatalogQuery.data || []
+    if (!value) return items
+    return items.filter((item) => item.name.toLowerCase().includes(value) || String(item.id).includes(value))
+  }, [catalogSearch, selectedCatalogQuery.data])
 
-  const openDetail = (target: DetailTarget) => {
-    setDetailTarget(target)
-  }
+  const filteredAdmins = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    return (adminsQuery.data || []).filter((item) => (!value || item.email.toLowerCase().includes(value) || String(item.id).includes(value)) && statusFilterMatches(item.is_active, adminStatusFilter))
+  }, [search, adminStatusFilter, adminsQuery.data])
 
-  const closeDetail = () => {
-    setDetailTarget(null)
-  }
+  const filteredUsers = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    return (usersQuery.data || []).filter((item) => (!value || toSearchValue(item.email, item.role, item.id).includes(value)) && (userRoleFilter === 'all' || item.role === userRoleFilter) && statusFilterMatches(item.is_active, userStatusFilter))
+  }, [search, userRoleFilter, userStatusFilter, usersQuery.data])
 
-  const openCompanyById = (companyId?: number | null) => {
-    if (!companyId) return
-    openDetail({ kind: 'company', id: companyId })
-  }
+  const filteredCompanies = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    return (companiesQuery.data || []).filter((item) => (!value || toSearchValue(item.name, item.website, item.user_email, item.id).includes(value)) && statusFilterMatches(item.is_active, companyStatusFilter) && (companyCityFilter === 'all' || (item.cities || []).includes(companyCityFilter)) && (companyTypeFilter === 'all' || item.company_type_name === companyTypeFilter))
+  }, [search, companyStatusFilter, companyCityFilter, companyTypeFilter, companiesQuery.data])
 
-  const openApplicantById = (applicantId?: number | null) => {
-    if (!applicantId) return
-    openDetail({ kind: 'applicant', id: applicantId })
-  }
+  const filteredApplicants = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    return (applicantsQuery.data || []).filter((item) => {
+      const matchesSearch = !value || toSearchValue(item.full_name, item.phone, item.email, item.id).includes(value)
+      const matchesStatus = statusFilterMatches(item.is_active, applicantStatusFilter)
+      const matchesCity = applicantCityFilter === 'all' || item.city_name === applicantCityFilter
+      const matchesResume = applicantResumeFilter === 'all' || (applicantResumeFilter === 'has-resumes' ? (item.resumes_count || 0) > 0 : (item.resumes_count || 0) === 0)
+      return matchesSearch && matchesStatus && matchesCity && matchesResume
+    })
+  }, [search, applicantStatusFilter, applicantCityFilter, applicantResumeFilter, applicantsQuery.data])
 
-  const openVacancyById = (vacancyId?: number | null) => {
-    if (!vacancyId) return
-    openDetail({ kind: 'vacancy', id: vacancyId })
-  }
+  const filteredVacancies = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    return (vacanciesQuery.data || []).filter((item) => {
+      const matchesSearch = !value || toSearchValue(item.title, item.description, item.company_name, item.id).includes(value)
+      const matchesStatus = vacancyStatusFilter === 'all' || item.status_name === vacancyStatusFilter
+      const matchesCity = vacancyCityFilter === 'all' || item.city_name === vacancyCityFilter
+      const matchesProfession = vacancyProfessionFilter === 'all' || item.profession_name === vacancyProfessionFilter
+      const hasSalary = Boolean(item.salary_min || item.salary_max)
+      const matchesSalary = vacancySalaryFilter === 'all' || (vacancySalaryFilter === 'with-salary' ? hasSalary : !hasSalary)
+      return matchesSearch && matchesStatus && matchesCity && matchesProfession && matchesSalary
+    })
+  }, [search, vacancyStatusFilter, vacancyCityFilter, vacancyProfessionFilter, vacancySalaryFilter, vacanciesQuery.data])
 
-  const openUserById = (userId?: number | null) => {
-    if (!userId) return
-    openDetail({ kind: 'user', id: userId })
-  }
+  const filteredApplications = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    return (applicationsQuery.data || []).filter((item) => (!value || toSearchValue(item.vacancy_title, item.company_name, item.resume_profession, item.applicant_name, item.vacancy_id, item.resume_id).includes(value)) && (applicationStatusFilter === 'all' || item.status === applicationStatusFilter) && (applicationCompanyFilter === 'all' || item.company_name === applicationCompanyFilter))
+  }, [search, applicationStatusFilter, applicationCompanyFilter, applicationsQuery.data])
+
+  const dashboardChartMeta = useMemo(() => {
+    const meta = dashboardCharts.find((item) => item.value === dashboardChart) || dashboardCharts[0]
+
+    if (dashboardChart === 'top-professions') {
+      return {
+        ...meta,
+        description:
+          professionChartSource === 'resumes'
+            ? 'Профессии резюме соискателей'
+            : 'Профессии вакансий работодателей',
+      }
+    }
+
+    return meta
+  }, [dashboardChart, professionChartSource])
+  const dashboardChartVariant = useMemo<'line' | 'bars'>(() => dashboardChart === 'registrations' ? 'line' : 'bars', [dashboardChart])
+
+  const dashboardChartPoints = useMemo<ChartPoint[]>(() => {
+    if (dashboardChart === 'registrations') {
+      return (dashboard.registrations || []).map((item) => ({
+        label: item.label || formatChartDate(item.date || null),
+        value: item.users ?? item.count ?? 0,
+      }))
+    }
+
+    if (dashboardChart === 'platform') {
+      return [
+        { label: 'Компании', value: dashboard.companies_total ?? 0 },
+        { label: 'Соискатели', value: dashboard.applicants_total ?? 0 },
+        { label: 'Вакансии', value: dashboard.vacancies_total ?? 0 },
+        { label: 'Отклики', value: dashboard.applications_total ?? 0 },
+      ]
+    }
+
+    if (dashboardChart === 'roles') {
+      return Object.entries(dashboard.users_by_role || {}).map(([key, value]) => ({
+        label:
+          key === 'admin'
+            ? 'Админы'
+            : key === 'company'
+              ? 'Работодатели'
+              : key === 'applicant'
+                ? 'Соискатели'
+                : key,
+        value,
+      }))
+    }
+
+    if (dashboardChart === 'applications-status') {
+      return Object.entries(dashboard.applications_by_status || {}).map(([key, value]) => ({
+        label: statusLabels[key] || key,
+        value,
+      }))
+    }
+
+    if (dashboardChart === 'top-cities') {
+      return (dashboard.top_cities || []).map((item) => ({ label: item.label, value: item.value }))
+    }
+
+    return professionChartSource === 'resumes' ? resumeProfessionPoints : vacancyProfessionPoints
+  }, [dashboardChart, dashboard, professionChartSource, resumeProfessionPoints, vacancyProfessionPoints])
+
+  const detailData = detailTarget?.kind === 'admin' ? adminDetailQuery.data : detailTarget?.kind === 'user' ? userDetailQuery.data : detailTarget?.kind === 'company' ? companyDetailQuery.data : detailTarget?.kind === 'applicant' ? applicantDetailQuery.data : detailTarget?.kind === 'vacancy' ? vacancyDetailQuery.data : detailTarget?.kind === 'application' ? applicationDetailQuery.data : null
+  const detailLoading = adminDetailQuery.isLoading || userDetailQuery.isLoading || companyDetailQuery.isLoading || applicantDetailQuery.isLoading || vacancyDetailQuery.isLoading || applicationDetailQuery.isLoading
+
+  const openDetail = (target: DetailTarget) => setDetailTarget(target)
+  const closeDetail = () => setDetailTarget(null)
+  const openCompanyById = (companyId?: number | null) => { if (companyId) openDetail({ kind: 'company', id: companyId }) }
+  const openApplicantById = (applicantId?: number | null) => { if (applicantId) openDetail({ kind: 'applicant', id: applicantId }) }
+  const openVacancyById = (vacancyId?: number | null) => { if (vacancyId) openDetail({ kind: 'vacancy', id: vacancyId }) }
+  const openUserById = (userId?: number | null) => { if (userId) openDetail({ kind: 'user', id: userId }) }
 
   const findCompanyByName = (name?: string | null) => {
     const normalized = safeString(name).trim().toLowerCase()
     if (!normalized) return null
-    return (companiesQuery.data || []).find(
-      (item) => item.name.trim().toLowerCase() === normalized,
-    )
+    return (companiesQuery.data || []).find((item) => item.name.trim().toLowerCase() === normalized)
   }
 
   const findApplicantByName = (name?: string | null) => {
     const normalized = safeString(name).trim().toLowerCase()
     if (!normalized) return null
-    return (applicantsQuery.data || []).find(
-      (item) => item.full_name.trim().toLowerCase() === normalized,
-    )
+    return (applicantsQuery.data || []).find((item) => item.full_name.trim().toLowerCase() === normalized)
   }
 
-  const renderAdminDetailContent = () => {
-    const data = (detailData || {}) as Record<string, unknown>
+  const resetSearchAndFilters = (tab: TabKey) => { setActiveTab(tab); setSearch(''); setCatalogSearch(''); resetPage(tab) }
 
-    return (
-      <div className="admin-detail-layout">
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>{safeString(data.email) || `Администратор #${safeNumber(data.id) ?? 0}`}</h4>
-          </div>
-
-          <div className="admin-summary-grid">
-            {renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}
-            {renderSummaryField('Роль', <span>Администратор</span>)}
-            {renderSummaryField(
-              'Статус',
-              typeof data.is_active === 'boolean'
-                ? renderPrimitiveBadge(Boolean(data.is_active))
-                : <span>—</span>,
-            )}
-            {renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
-            {renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}
-          </div>
-        </section>
-      </div>
-    )
+  const resetCurrentFilters = () => {
+    setSearch('')
+    setCatalogSearch('')
+    if (activeTab === 'admins') setAdminStatusFilter('all')
+    if (activeTab === 'users') { setUserRoleFilter('all'); setUserStatusFilter('all') }
+    if (activeTab === 'companies') { setCompanyStatusFilter('all'); setCompanyCityFilter('all'); setCompanyTypeFilter('all') }
+    if (activeTab === 'applicants') { setApplicantStatusFilter('all'); setApplicantCityFilter('all'); setApplicantResumeFilter('all') }
+    if (activeTab === 'vacancies') { setVacancyStatusFilter('all'); setVacancyCityFilter('all'); setVacancyProfessionFilter('all'); setVacancySalaryFilter('all') }
+    if (activeTab === 'applications') { setApplicationStatusFilter('all'); setApplicationCompanyFilter('all') }
+    resetPage(activeTab)
   }
+
+  const openCreateAdminModal = () => {
+    setFormError('')
+    setNewAdminEmail('')
+    setNewAdminPassword('')
+    setIsCreateAdminOpen(true)
+  }
+
+  const closeCreateAdminModal = () => {
+    setFormError('')
+    setIsCreateAdminOpen(false)
+  }
+
+  const closeEditAdminModal = () => {
+    setFormError('')
+    setEditingAdmin(null)
+  }
+
+  const closeDeleteAdminModal = () => {
+    setFormError('')
+    setDeletingAdmin(null)
+  }
+
+  const closeSelfSettingsModal = () => {
+    setFormError('')
+    setIsSelfSettingsOpen(false)
+  }
+
+  const handleCreateAdmin = () => {
+    const emailError = getEmailError(newAdminEmail)
+    const passwordError = getRequiredPasswordError(newAdminPassword)
+    const error = emailError || passwordError
+
+    if (error) {
+      setFormError(error)
+      setMessage(error)
+      return
+    }
+
+    setFormError('')
+    createAdminMutation.mutate()
+  }
+
+  const handleUpdateAdmin = (admin: AdminListItem) => {
+    const emailError = getEmailError(editAdminEmail)
+    const passwordError = getOptionalPasswordError(editAdminPassword)
+    const currentPasswordError = getRequiredPasswordError(editAdminCurrentPassword, 'Пароль текущего администратора')
+    const rootError = admin.id === 1 && !editAdminIsActive ? 'Главного администратора нельзя заблокировать.' : ''
+    const error = emailError || passwordError || currentPasswordError || rootError
+
+    if (error) {
+      setFormError(error)
+      setMessage(error)
+      return
+    }
+
+    setFormError('')
+    updateAdminMutation.mutate(admin.id)
+  }
+
+  const handleDeleteAdmin = (admin: AdminListItem) => {
+    const rootError = admin.id === 1 ? 'Главного администратора нельзя удалить.' : ''
+    const passwordError = getRequiredPasswordError(deleteAdminCurrentPassword, 'Пароль текущего администратора')
+    const error = rootError || passwordError
+
+    if (error) {
+      setFormError(error)
+      setMessage(error)
+      return
+    }
+
+    setFormError('')
+    deleteAdminMutation.mutate(admin.id)
+  }
+
+  const handleUpdateSelfSettings = () => {
+    const emailError = getEmailError(selfEmail)
+    const passwordError = getOptionalPasswordError(selfNewPassword)
+    const currentPasswordError = getRequiredPasswordError(selfCurrentPassword, 'Текущий пароль')
+    const noChangesError = selfEmail.trim() === (authMeQuery.data?.email || '') && !selfNewPassword.trim()
+      ? 'Нет изменений для сохранения.'
+      : ''
+    const error = emailError || passwordError || currentPasswordError || noChangesError
+
+    if (error) {
+      setFormError(error)
+      setMessage(error)
+      return
+    }
+
+    setFormError('')
+    updateSelfSettingsMutation.mutate()
+  }
+
+const renderAdminDetailContent = () => {
+  const data = (detailData || {}) as Record<string, unknown>
+
+  return (
+    <div className="admin-detail-layout">
+      <section className="admin-section">
+        <div className="admin-section__header">
+          <h4>{safeString(data.email) || `Администратор ID ${safeNumber(data.id) ?? 0}`}</h4>
+        </div>
+
+        <div className="admin-summary-grid">
+          {renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}
+          {renderSummaryField('Роль', <span>Администратор</span>)}
+          {renderSummaryField(
+            'Статус',
+            typeof data.is_active === 'boolean' ? renderPrimitiveBadge(Boolean(data.is_active)) : <span>—</span>,
+          )}
+          {renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
+          {renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}
+
+        </div>
+      </section>
+    </div>
+  )
+}
 
   const renderUserDetailContent = () => {
     const data = (detailData || {}) as Record<string, unknown>
@@ -1228,1137 +1714,174 @@ export const AdminPage = () => {
     const applicantId = safeNumber(data.applicant_id)
     const companyName = safeString(data.company_name)
     const applicantFullName = safeString(data.applicant_full_name)
-
-    return (
-      <div className="admin-detail-layout">
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>Основная информация</h4>
-          </div>
-
-          <div className="admin-summary-grid">
-            {renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}
-            {renderSummaryField(
-              'Роль',
-              <span>
-                {role === 'admin'
-                  ? 'Администратор'
-                  : role === 'company'
-                    ? 'Работодатель'
-                    : 'Соискатель'}
-              </span>,
-            )}
-            {renderSummaryField(
-              'Статус',
-              typeof data.is_active === 'boolean'
-                ? renderPrimitiveBadge(Boolean(data.is_active))
-                : <span>—</span>,
-            )}
-            {renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
-            {renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}
-            {renderSummaryField('Количество вакансий', <span>{safeString(data.vacancies_count) || '0'}</span>)}
-            {renderSummaryField('Количество резюме', <span>{safeString(data.resumes_count) || '0'}</span>)}
-            {renderSummaryField('Количество откликов', <span>{safeString(data.applications_count) || '0'}</span>)}
-          </div>
-        </section>
-
-        {role === 'company' ? (
-          <section className="admin-section">
-            <div className="admin-section__header">
-              <h4>Связанная компания</h4>
-            </div>
-
-            {companyId ? (
-              <div className="admin-section__body">
-                {renderEntityButton(companyName || `Компания #${companyId}`, () => openCompanyById(companyId))}
-              </div>
-            ) : (
-              <div className="admin-empty-inline">Компания не привязана</div>
-            )}
-          </section>
-        ) : null}
-
-        {role === 'applicant' ? (
-          <section className="admin-section">
-            <div className="admin-section__header">
-              <h4>Связанный соискатель</h4>
-            </div>
-
-            {applicantId ? (
-              <div className="admin-section__body">
-                {renderEntityButton(
-                  applicantFullName || `Соискатель #${applicantId}`,
-                  () => openApplicantById(applicantId),
-                )}
-              </div>
-            ) : (
-              <div className="admin-empty-inline">Соискатель не привязан</div>
-            )}
-          </section>
-        ) : null}
-      </div>
-    )
+    return <div className="admin-detail-layout"><section className="admin-section"><div className="admin-section__header"><h4>Основная информация</h4></div><div className="admin-summary-grid">{renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}{renderSummaryField('Роль', <span>{role === 'admin' ? 'Администратор' : role === 'company' ? 'Работодатель' : 'Соискатель'}</span>)}{renderSummaryField('Статус', typeof data.is_active === 'boolean' ? renderPrimitiveBadge(Boolean(data.is_active)) : <span>—</span>)}{renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}{renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}{renderSummaryField('Количество вакансий', <span>{safeString(data.vacancies_count) || '0'}</span>)}{renderSummaryField('Количество резюме', <span>{safeString(data.resumes_count) || '0'}</span>)}{renderSummaryField('Количество откликов', <span>{safeString(data.applications_count) || '0'}</span>)}</div></section>{role === 'company' ? <section className="admin-section"><div className="admin-section__header"><h4>Связанная компания</h4></div>{companyId ? <div className="admin-section__body">{renderEntityButton(companyName || `Компания #${companyId}`, () => openCompanyById(companyId))}</div> : <div className="admin-empty-inline">Компания не привязана</div>}</section> : null}{role === 'applicant' ? <section className="admin-section"><div className="admin-section__header"><h4>Связанный соискатель</h4></div>{applicantId ? <div className="admin-section__body">{renderEntityButton(applicantFullName || `Соискатель #${applicantId}`, () => openApplicantById(applicantId))}</div> : <div className="admin-empty-inline">Соискатель не привязан</div>}</section> : null}</div>
   }
 
   const renderCompanyDetailContent = () => {
     const data = (detailData || {}) as Record<string, unknown>
     const companyId = safeNumber(data.id) ?? 0
     const linkedVacancies = (vacanciesQuery.data || []).filter((item) => item.company_id === companyId)
-
-    return (
-      <div className="admin-detail-layout">
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>{safeString(data.name) || `Компания #${companyId}`}</h4>
-          </div>
-
-          <div className="admin-summary-grid">
-            {renderSummaryField('Тип компании', <span>{safeString(data.company_type_name) || '—'}</span>)}
-            {renderSummaryField(
-              'Сайт',
-              safeString(data.website) ? (
-                <a href={safeString(data.website)} target="_blank" rel="noreferrer" className="admin-detail-link">
-                  {safeString(data.website)}
-                </a>
-              ) : (
-                <span>—</span>
-              ),
-            )}
-            {renderSummaryField(
-              'Статус',
-              typeof data.is_active === 'boolean'
-                ? renderPrimitiveBadge(Boolean(data.is_active))
-                : <span>—</span>,
-            )}
-            {renderSummaryField('Год основания', <span>{safeString(data.founded_year) || '—'}</span>)}
-            {renderSummaryField('Сотрудников', <span>{safeString(data.employee_count) || '—'}</span>)}
-            {renderSummaryField('Вакансий', <span>{safeString(data.vacancies_count) || '0'}</span>)}
-          </div>
-
-          {safeString(data.description) ? (
-            <div className="admin-description-box">{safeString(data.description)}</div>
-          ) : null}
-        </section>
-
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>Связанные данные</h4>
-          </div>
-
-          <div className="admin-summary-grid">
-            {renderSummaryField(
-              'Пользователь',
-              safeNumber(data.user_id) ? (
-                renderEntityButton(
-                  safeString(data.user_email) || `Пользователь #${safeNumber(data.user_id)}`,
-                  () => openUserById(safeNumber(data.user_id)),
-                )
-              ) : (
-                <span>—</span>
-              ),
-            )}
-
-            {renderSummaryField(
-              'Города',
-              toArray<string>(data.cities).length ? (
-                <div className="admin-chip-list">
-                  {toArray<string>(data.cities).map((city) => (
-                    <span key={city} className="admin-chip">{city}</span>
-                  ))}
-                </div>
-              ) : (
-                <span>—</span>
-              ),
-            )}
-          </div>
-        </section>
-
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>Вакансии компании</h4>
-          </div>
-
-          {linkedVacancies.length > 0 ? (
-            <div className="admin-linked-card-grid">
-              {linkedVacancies.map((vacancy) => (
-                <button
-                  key={vacancy.id}
-                  type="button"
-                  className="admin-linked-card"
-                  onClick={() => openVacancyById(vacancy.id)}
-                >
-                  <div className="admin-linked-card__title">{vacancy.title}</div>
-                  <div className="admin-linked-card__meta">
-                    <span>{vacancy.city_name || 'Город не указан'}</span>
-                    <span>{vacancy.status_name || 'Статус не указан'}</span>
-                  </div>
-                  <div className="admin-linked-card__text">
-                    {formatSalary(vacancy.salary_min, vacancy.salary_max, vacancy.currency || 'BYN')}
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="admin-empty-inline">У компании пока нет вакансий</div>
-          )}
-        </section>
-      </div>
-    )
+    return <div className="admin-detail-layout"><section className="admin-section"><div className="admin-section__header"><h4>{safeString(data.name) || `Компания #${companyId}`}</h4></div><div className="admin-summary-grid">{renderSummaryField('Тип компании', <span>{safeString(data.company_type_name) || '—'}</span>)}{renderSummaryField('Сайт', safeString(data.website) ? <a href={safeString(data.website)} target="_blank" rel="noreferrer" className="admin-detail-link">{safeString(data.website)}</a> : <span>—</span>)}{renderSummaryField('Статус', typeof data.is_active === 'boolean' ? renderPrimitiveBadge(Boolean(data.is_active)) : <span>—</span>)}{renderSummaryField('Год основания', <span>{safeString(data.founded_year) || '—'}</span>)}{renderSummaryField('Сотрудников', <span>{safeString(data.employee_count) || '—'}</span>)}{renderSummaryField('Вакансий', <span>{safeString(data.vacancies_count) || '0'}</span>)}</div>{safeString(data.description) ? <div className="admin-description-box">{safeString(data.description)}</div> : null}</section><section className="admin-section"><div className="admin-section__header"><h4>Связанные данные</h4></div><div className="admin-summary-grid">{renderSummaryField('Пользователь', safeNumber(data.user_id) ? renderEntityButton(safeString(data.user_email) || `Пользователь #${safeNumber(data.user_id)}`, () => openUserById(safeNumber(data.user_id))) : <span>—</span>)}{renderSummaryField('Города', toArray<string>(data.cities).length ? <div className="admin-chip-list">{toArray<string>(data.cities).map((city) => <span key={city} className="admin-chip">{city}</span>)}</div> : <span>—</span>)}</div></section><section className="admin-section"><div className="admin-section__header"><h4>Вакансии компании</h4></div>{linkedVacancies.length > 0 ? <div className="admin-linked-card-grid">{linkedVacancies.map((vacancy) => <button key={vacancy.id} type="button" className="admin-linked-card" onClick={() => openVacancyById(vacancy.id)}><div className="admin-linked-card__title">{vacancy.title}</div><div className="admin-linked-card__meta"><span>{vacancy.city_name || 'Город не указан'}</span><span>{vacancy.status_name || 'Статус не указан'}</span></div><div className="admin-linked-card__text">{formatSalary(vacancy.salary_min, vacancy.salary_max, vacancy.currency || 'BYN')}</div></button>)}</div> : <div className="admin-empty-inline">У компании пока нет вакансий</div>}</section></div>
   }
 
   const renderApplicantDetailContent = () => {
     const data = (detailData || {}) as Record<string, unknown>
     const resumes = toArray<Record<string, unknown>>(data.resumes)
     const educations = toArray<Record<string, unknown>>(data.educations)
-
-    const workExperienceCards = resumes.flatMap((resume) => {
-      const workExperiences = toArray<Record<string, unknown>>(resume.work_experiences)
-      const professionName = safeString(resume.profession_name) || `Резюме #${safeNumber(resume.id) ?? '—'}`
-      const count = safeNumber(resume.work_experiences_count) ?? 0
-
-      if (workExperiences.length > 0) {
-        return workExperiences.map((item, index) => ({
-          id: `${safeNumber(resume.id) ?? 'resume'}-${index}`,
-          title:
-            safeString(item.position) ||
-            safeString(item.job_title) ||
-            safeString(item.company_name) ||
-            'Опыт работы',
-          subtitle: safeString(item.company_name) || professionName,
-          period: [
-            safeString(item.start_date) ? formatDateTime(safeString(item.start_date)) : '',
-            safeString(item.end_date) ? formatDateTime(safeString(item.end_date)) : 'по настоящее время',
-          ]
-            .filter(Boolean)
-            .join(' — '),
-          description: safeString(item.description) || '',
-        }))
-      }
-
-      if (count > 0) {
-        return [
-          {
-            id: `resume-summary-${safeNumber(resume.id) ?? professionName}`,
-            title: professionName,
-            subtitle: 'Сводка по резюме',
-            period: '',
-            description: `Количество записей опыта работы: ${count}`,
-          },
-        ]
-      }
-
-      return []
-    })
-
-    return (
-      <div className="admin-detail-layout">
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>{safeString(data.full_name) || `Соискатель #${safeNumber(data.id) ?? 0}`}</h4>
-          </div>
-
-          <div className="admin-summary-grid">
-            {renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}
-            {renderSummaryField('Телефон', <span>{safeString(data.phone) || '—'}</span>)}
-            {renderSummaryField('Город', <span>{safeString(data.city_name) || '—'}</span>)}
-            {renderSummaryField(
-              'Пол',
-              <span>
-                {safeString(data.gender) === 'м'
-                  ? 'Мужской'
-                  : safeString(data.gender) === 'ж'
-                    ? 'Женский'
-                    : safeString(data.gender) || '—'}
-              </span>,
-            )}
-            {renderSummaryField('Дата рождения', <span>{formatDateTime(safeString(data.birth_date) || null)}</span>)}
-            {renderSummaryField(
-              'Статус',
-              typeof data.is_active === 'boolean'
-                ? renderPrimitiveBadge(Boolean(data.is_active))
-                : <span>—</span>,
-            )}
-            {renderSummaryField('Резюме', <span>{safeString(data.resumes_count) || '0'}</span>)}
-            {renderSummaryField('Образование', <span>{safeString(data.educations_count) || '0'}</span>)}
-            {renderSummaryField('Отклики', <span>{safeString(data.applications_count) || '0'}</span>)}
-          </div>
-        </section>
-
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>Резюме</h4>
-          </div>
-
-          {resumes.length > 0 ? (
-            <div className="admin-linked-card-grid">
-              {resumes.map((resume) => (
-                <div key={String(resume.id)} className="admin-linked-card admin-linked-card--static">
-                  <div className="admin-linked-card__title">
-                    {safeString(resume.profession_name) || `Резюме #${safeNumber(resume.id) ?? '—'}`}
-                  </div>
-
-                  <div className="admin-linked-card__meta">
-                    <span>Откликов: {safeString(resume.applications_count) || '0'}</span>
-                    <span>Опытов работы: {safeString(resume.work_experiences_count) || '0'}</span>
-                  </div>
-
-                  {toArray<string>(resume.skills).length > 0 ? (
-                    <div className="admin-chip-list">
-                      {toArray<string>(resume.skills).map((skill) => (
-                        <span key={skill} className="admin-chip">{skill}</span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="admin-empty-inline">Резюме не найдены</div>
-          )}
-        </section>
-
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>Образование</h4>
-          </div>
-
-          {educations.length > 0 ? (
-            <div className="admin-linked-card-grid">
-              {educations.map((education) => (
-                <div key={String(education.id)} className="admin-linked-card admin-linked-card--static">
-                  <div className="admin-linked-card__title">
-                    {safeString(education.institution_name) || `Образование #${safeNumber(education.id) ?? '—'}`}
-                  </div>
-                  <div className="admin-linked-card__meta">
-                    <span>{safeString(education.start_date) ? formatDateTime(safeString(education.start_date)) : '—'}</span>
-                    <span>{safeString(education.end_date) ? formatDateTime(safeString(education.end_date)) : '—'}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="admin-empty-inline">Образование не указано</div>
-          )}
-        </section>
-
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>Опыт работы</h4>
-          </div>
-
-          {workExperienceCards.length > 0 ? (
-            <div className="admin-linked-card-grid">
-              {workExperienceCards.map((item) => (
-                <div key={item.id} className="admin-linked-card admin-linked-card--static">
-                  <div className="admin-linked-card__title">{item.title}</div>
-                  <div className="admin-linked-card__meta">
-                    <span>{item.subtitle}</span>
-                    {item.period ? <span>{item.period}</span> : null}
-                  </div>
-                  {item.description ? (
-                    <div className="admin-linked-card__text">{item.description}</div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="admin-empty-inline">Опыт работы не указан</div>
-          )}
-        </section>
-      </div>
-    )
+    const workExperiences = toArray<Record<string, unknown>>(data.work_experiences)
+    return <div className="admin-detail-layout"><section className="admin-section"><div className="admin-section__header"><h4>{safeString(data.full_name) || `Соискатель #${safeNumber(data.id) ?? 0}`}</h4></div><div className="admin-summary-grid">{renderSummaryField('Email', <span>{safeString(data.email) || '—'}</span>)}{renderSummaryField('Телефон', <span>{safeString(data.phone) || '—'}</span>)}{renderSummaryField('Город', <span>{safeString(data.city_name) || '—'}</span>)}{renderSummaryField('Пол', <span>{safeString(data.gender) === 'м' ? 'Мужской' : safeString(data.gender) === 'ж' ? 'Женский' : safeString(data.gender) || '—'}</span>)}{renderSummaryField('Дата рождения', <span>{formatDateTime(safeString(data.birth_date) || null)}</span>)}{renderSummaryField('Статус', typeof data.is_active === 'boolean' ? renderPrimitiveBadge(Boolean(data.is_active)) : <span>—</span>)}{renderSummaryField('Резюме', <span>{safeString(data.resumes_count) || '0'}</span>)}{renderSummaryField('Образование', <span>{safeString(data.educations_count) || '0'}</span>)}{renderSummaryField('Отклики', <span>{safeString(data.applications_count) || '0'}</span>)}</div></section><section className="admin-section"><div className="admin-section__header"><h4>Резюме</h4></div>{resumes.length > 0 ? <div className="admin-linked-card-grid">{resumes.map((resume) => <div key={String(resume.id)} className="admin-linked-card admin-linked-card--static"><div className="admin-linked-card__title">{safeString(resume.profession_name) || `Резюме #${safeNumber(resume.id) ?? '—'}`}</div><div className="admin-linked-card__meta"><span>Откликов: {safeString(resume.applications_count) || '0'}</span><span>Опытов работы: {safeString(resume.work_experiences_count) || '0'}</span></div>{toArray<string>(resume.skills).length > 0 ? <div className="admin-chip-list">{toArray<string>(resume.skills).map((skill) => <span key={skill} className="admin-chip">{skill}</span>)}</div> : null}</div>)}</div> : <div className="admin-empty-inline">Резюме не найдены</div>}</section><section className="admin-section"><div className="admin-section__header"><h4>Образование</h4></div>{educations.length > 0 ? <div className="admin-linked-card-grid">{educations.map((education) => <div key={String(education.id)} className="admin-linked-card admin-linked-card--static"><div className="admin-linked-card__title">{safeString(education.institution_name) || `Образование #${safeNumber(education.id) ?? '—'}`}</div><div className="admin-linked-card__meta"><span>{safeString(education.start_date) ? formatDateTime(safeString(education.start_date)) : '—'}</span><span>{safeString(education.end_date) ? formatDateTime(safeString(education.end_date)) : '—'}</span></div></div>)}</div> : <div className="admin-empty-inline">Образование не указано</div>}</section><section className="admin-section"><div className="admin-section__header"><h4>Опыт работы</h4></div>{workExperiences.length > 0 ? <div className="admin-linked-card-grid">{workExperiences.map((item) => <div key={String(item.id)} className="admin-linked-card admin-linked-card--static"><div className="admin-linked-card__title">{safeString(item.position) || 'Опыт работы'}</div><div className="admin-linked-card__meta"><span>{safeString(item.company_name) || 'Компания не указана'}</span><span>{safeString(item.start_date) || '—'} — {safeString(item.end_date) || 'по настоящее время'}</span></div>{safeString(item.description) ? <div className="admin-linked-card__text">{safeString(item.description)}</div> : null}</div>)}</div> : <div className="admin-empty-inline">Опыт работы не указан</div>}</section></div>
   }
 
-  const renderVacancyDetailContent = () => {
-    const data = (detailData || {}) as Record<string, unknown>
-    const companyId = safeNumber(data.company_id)
-    const skillNames = getVacancySkillNames(data.skills)
+const renderVacancyDetailContent = () => {
+  const data = (detailData || {}) as Record<string, unknown>
 
-    return (
-      <div className="admin-detail-layout">
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>{safeString(data.title) || `Вакансия #${safeNumber(data.id) ?? 0}`}</h4>
-          </div>
+  const companyId = safeNumber(data.company_id)
+  const cityId = safeNumber(data.city_id)
+  const professionId = safeNumber(data.profession_id)
+  const statusId = safeNumber(data.status_id)
 
-          <div className="admin-summary-grid">
-            {renderSummaryField(
-              'Компания',
-              companyId ? (
-                renderEntityButton(
-                  safeString(data.company_name) || `Компания #${companyId}`,
-                  () => openCompanyById(companyId),
-                )
-              ) : (
-                <span>{safeString(data.company_name) || '—'}</span>
-              ),
-            )}
-            {renderSummaryField('Город', <span>{safeString(data.city_name) || '—'}</span>)}
-            {renderSummaryField('Профессия', <span>{safeString(data.profession_name) || '—'}</span>)}
-            {renderSummaryField('Статус', <span>{safeString(data.status_name) || '—'}</span>)}
-            {renderSummaryField(
-              'Зарплата',
-              <span>
-                {formatSalary(
-                  safeNumber(data.salary_min),
-                  safeNumber(data.salary_max),
-                  safeString(data.currency) || 'BYN',
-                )}
-              </span>,
-            )}
-            {renderSummaryField('Создана', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
-          </div>
+  const companyName =
+    safeString(data.company_name) ||
+    getNestedName(data.company) ||
+    companiesQuery.data?.find((item) => item.id === companyId)?.name ||
+    ''
 
-          {safeString(data.description) ? (
-            <div className="admin-description-box">{safeString(data.description)}</div>
-          ) : null}
-        </section>
+  const cityName =
+    safeString(data.city_name) ||
+    getNestedName(data.city) ||
+    ''
 
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>Навыки</h4>
-          </div>
+  const professionName =
+    safeString(data.profession_name) ||
+    getNestedName(data.profession) ||
+    (professionId && professionById[professionId] ? professionById[professionId] : '')
 
-          {skillNames.length > 0 ? (
-            <div className="admin-chip-list">
-              {skillNames.map((skill) => (
-                <span key={skill} className="admin-chip">{skill}</span>
-              ))}
-            </div>
-          ) : (
-            <div className="admin-empty-inline">Навыки не указаны</div>
+  const statusName =
+    safeString(data.status_name) ||
+    getNestedName(data.status) ||
+    ''
+
+  const currency =
+    safeString(data.currency) ||
+    safeString(data.currency_name) ||
+    getNestedName(data.currency) ||
+    'BYN'
+
+  const skillNames = getVacancySkillNames(data.skills)
+
+  return (
+    <div className="admin-detail-layout">
+      <section className="admin-section">
+        <div className="admin-section__header">
+          <h4>{safeString(data.title) || `Вакансия ID ${safeNumber(data.id) ?? 0}`}</h4>
+        </div>
+
+        <div className="admin-summary-grid">
+          {renderSummaryField(
+            'Компания',
+            companyId ? (
+              renderEntityButton(companyName || `Компания ID ${companyId}`, () => openCompanyById(companyId))
+            ) : (
+              <span>{companyName || '—'}</span>
+            ),
           )}
-        </section>
-      </div>
-    )
-  }
 
+          {renderSummaryField('Город', <span>{cityName || (cityId ? `Город ID ${cityId}` : '—')}</span>)}
+
+          {renderSummaryField(
+            'Профессия',
+            <span>{professionName || (professionId ? `Профессия ID ${professionId}` : '—')}</span>,
+          )}
+
+          {renderSummaryField(
+            'Статус',
+            <span>{statusName || (statusId ? `Статус ID ${statusId}` : '—')}</span>,
+          )}
+
+          {renderSummaryField(
+            'Зарплата',
+            <span>{formatSalary(safeNumber(data.salary_min), safeNumber(data.salary_max), currency)}</span>,
+          )}
+
+          {renderSummaryField('Создана', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
+        </div>
+
+        {safeString(data.description) ? (
+          <div className="admin-description-box">{safeString(data.description)}</div>
+        ) : null}
+      </section>
+
+      <section className="admin-section">
+        <div className="admin-section__header">
+          <h4>Навыки</h4>
+        </div>
+
+        {skillNames.length > 0 ? (
+          <div className="admin-chip-list">
+            {skillNames.map((skill) => (
+              <span key={skill} className="admin-chip">{skill}</span>
+            ))}
+          </div>
+        ) : (
+          <div className="admin-empty-inline">Навыки не указаны</div>
+        )}
+      </section>
+    </div>
+  )
+}
   const renderApplicationDetailContent = () => {
     const data = (detailData || {}) as Record<string, unknown>
     const matchedCompany = findCompanyByName(safeString(data.company_name))
     const matchedApplicant = findApplicantByName(safeString(data.applicant_name))
-
-    return (
-      <div className="admin-detail-layout">
-        <section className="admin-section">
-          <div className="admin-section__header">
-            <h4>Информация об отклике</h4>
-          </div>
-
-          <div className="admin-summary-grid">
-            {renderSummaryField(
-              'Вакансия',
-              safeNumber(data.vacancy_id) ? (
-                renderEntityButton(
-                  safeString(data.vacancy_title) || `Вакансия #${safeNumber(data.vacancy_id)}`,
-                  () => openVacancyById(safeNumber(data.vacancy_id)),
-                )
-              ) : (
-                <span>{safeString(data.vacancy_title) || '—'}</span>
-              ),
-            )}
-
-            {renderSummaryField(
-              'Компания',
-              matchedCompany ? (
-                renderEntityButton(matchedCompany.name, () => openCompanyById(matchedCompany.id))
-              ) : (
-                <span>{safeString(data.company_name) || '—'}</span>
-              ),
-            )}
-
-            {renderSummaryField(
-              'Соискатель',
-              matchedApplicant ? (
-                renderEntityButton(matchedApplicant.full_name, () => openApplicantById(matchedApplicant.id))
-              ) : (
-                <span>{safeString(data.applicant_name) || '—'}</span>
-              ),
-            )}
-
-            {renderSummaryField('Профессия резюме', <span>{safeString(data.resume_profession) || '—'}</span>)}
-            {renderSummaryField('Город', <span>{safeString(data.city_name) || '—'}</span>)}
-            {renderSummaryField(
-              'Статус',
-              <span>{statusLabels[safeString(data.status)] || safeString(data.status) || '—'}</span>,
-            )}
-            {renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}
-            {renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}
-            {renderSummaryField(
-              'Зарплата по вакансии',
-              <span>{formatSalary(safeNumber(data.salary_min), safeNumber(data.salary_max), 'BYN')}</span>,
-            )}
-          </div>
-        </section>
-      </div>
-    )
+    return <div className="admin-detail-layout"><section className="admin-section"><div className="admin-section__header"><h4>Информация об отклике</h4></div><div className="admin-summary-grid">{renderSummaryField('Вакансия', safeNumber(data.vacancy_id) ? renderEntityButton(safeString(data.vacancy_title) || `Вакансия #${safeNumber(data.vacancy_id)}`, () => openVacancyById(safeNumber(data.vacancy_id))) : <span>{safeString(data.vacancy_title) || '—'}</span>)}{renderSummaryField('Компания', matchedCompany ? renderEntityButton(matchedCompany.name, () => openCompanyById(matchedCompany.id)) : <span>{safeString(data.company_name) || '—'}</span>)}{renderSummaryField('Соискатель', matchedApplicant ? renderEntityButton(matchedApplicant.full_name, () => openApplicantById(matchedApplicant.id)) : <span>{safeString(data.applicant_name) || '—'}</span>)}{renderSummaryField('Профессия резюме', <span>{safeString(data.resume_profession) || '—'}</span>)}{renderSummaryField('Город', <span>{safeString(data.city_name) || '—'}</span>)}{renderSummaryField('Статус', <span>{statusLabels[safeString(data.status)] || safeString(data.status) || '—'}</span>)}{renderSummaryField('Создан', <span>{formatDateTime(safeString(data.created_at) || null)}</span>)}{renderSummaryField('Обновлён', <span>{formatDateTime(safeString(data.updated_at) || null)}</span>)}{renderSummaryField('Зарплата по вакансии', <span>{formatSalary(safeNumber(data.salary_min), safeNumber(data.salary_max), 'BYN')}</span>)}</div>{safeString(data.cover_letter) ? <div className="admin-description-box">{safeString(data.cover_letter)}</div> : null}</section></div>
   }
 
-  const renderDashboard = () => (
-    <div className="admin-panel">
-      <div className="admin-stats-grid">
-        <div className="admin-stat-card">
-          <span>Пользователи</span>
-          <strong>{dashboard.users_total ?? 0}</strong>
-        </div>
+  const getDetailTitle = () => {
+    if (!detailTarget) return ''
 
-        <div className="admin-stat-card">
-          <span>Активные пользователи</span>
-          <strong>{dashboard.users_active ?? 0}</strong>
-        </div>
+    const data = (detailData || {}) as Record<string, unknown>
 
-        <div className="admin-stat-card">
-          <span>Компании</span>
-          <strong>{dashboard.companies_total ?? 0}</strong>
-        </div>
+    if (detailTarget.kind === 'admin') {
+      const email = safeString(data.email) || adminsQuery.data?.find((item) => item.id === detailTarget.id)?.email
+      return email ? `Администратор: ${email}` : `Администратор ID ${detailTarget.id}`
+    }
 
-        <div className="admin-stat-card">
-          <span>Соискатели</span>
-          <strong>{dashboard.applicants_total ?? 0}</strong>
-        </div>
+    if (detailTarget.kind === 'user') {
+      const user = usersQuery.data?.find((item) => item.id === detailTarget.id)
+      const email = safeString(data.email) || user?.email
+      return email ? `Пользователь: ${email}` : `Пользователь ID ${detailTarget.id}`
+    }
 
-        <div className="admin-stat-card">
-          <span>Вакансии</span>
-          <strong>{dashboard.vacancies_total ?? 0}</strong>
-        </div>
+    if (detailTarget.kind === 'company') {
+      const company = companiesQuery.data?.find((item) => item.id === detailTarget.id)
+      const name = safeString(data.name) || company?.name
+      return name ? `Компания: ${name}` : `Компания ID ${detailTarget.id}`
+    }
 
-        <div className="admin-stat-card">
-          <span>Отклики</span>
-          <strong>{dashboard.applications_total ?? 0}</strong>
-        </div>
-      </div>
+    if (detailTarget.kind === 'applicant') {
+      const applicant = applicantsQuery.data?.find((item) => item.id === detailTarget.id)
+      const name = safeString(data.full_name) || applicant?.full_name
+      return name ? `Соискатель: ${name}` : `Соискатель ID ${detailTarget.id}`
+    }
 
-      <div className="admin-dashboard-grid">
-        <div className="admin-card">
-          <div className="admin-card__header">
-            <h3>Последние пользователи</h3>
-          </div>
+    if (detailTarget.kind === 'vacancy') {
+      const vacancy = vacanciesQuery.data?.find((item) => item.id === detailTarget.id)
+      const title = safeString(data.title) || vacancy?.title
+      return title ? `Вакансия: ${title}` : `Вакансия ID ${detailTarget.id}`
+    }
 
-          <div className="admin-stack">
-            {(dashboard.recent_users || []).length > 0 ? (
-              dashboard.recent_users?.map((item) => (
-                <div key={item.id} className="admin-list-row">
-                  <div>
-                    <strong className="admin-email-text">
-                      {item.email ? maskEmail(item.email) : `Пользователь #${item.id}`}
-                    </strong>
-                    <p>
-                      {item.role === 'admin'
-                        ? 'Администратор'
-                        : item.role === 'company'
-                          ? 'Работодатель'
-                          : 'Соискатель'}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="admin-action-btn"
-                    onClick={() => {
-                      setActiveTab(item.role === 'admin' ? 'admins' : 'users')
-                      openDetail(
-                        item.role === 'admin'
-                          ? { kind: 'admin', id: item.id }
-                          : { kind: 'user', id: item.id },
-                      )
-                    }}
-                  >
-                    Подробнее
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div className="admin-empty-inline">Нет данных</div>
-            )}
-          </div>
-        </div>
-
-        <div className="admin-card">
-          <div className="admin-card__header">
-            <h3>Последние вакансии</h3>
-          </div>
-
-          <div className="admin-stack">
-            {(dashboard.recent_vacancies || []).length > 0 ? (
-              dashboard.recent_vacancies?.map((item) => (
-                <div key={item.id} className="admin-list-row">
-                  <div>
-                    <strong>{item.title || `Вакансия #${item.id}`}</strong>
-                    <p>{item.company_name || 'Компания не указана'}</p>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="admin-action-btn"
-                    onClick={() => {
-                      setActiveTab('vacancies')
-                      openDetail({ kind: 'vacancy', id: item.id })
-                    }}
-                  >
-                    Подробнее
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div className="admin-empty-inline">Нет данных</div>
-            )}
-          </div>
-        </div>
-
-        <div className="admin-card">
-          <div className="admin-card__header">
-            <h3>Последние отклики</h3>
-          </div>
-
-          <div className="admin-stack">
-            {(dashboard.recent_applications || []).length > 0 ? (
-              dashboard.recent_applications?.map((item, index) => (
-                <div key={`${item.vacancy_id}-${item.resume_id}-${index}`} className="admin-list-row">
-                  <div>
-                    <strong>{item.vacancy_title || `Вакансия #${item.vacancy_id}`}</strong>
-                    <p>{statusLabels[item.status || ''] || item.status || 'Без статуса'}</p>
-                  </div>
-
-                  {item.vacancy_id && item.resume_id ? (
-                    <button
-                      type="button"
-                      className="admin-action-btn"
-                      onClick={() => {
-                        setActiveTab('applications')
-                        openDetail({
-                          kind: 'application',
-                          vacancyId: item.vacancy_id ?? 0,
-                          resumeId: item.resume_id ?? 0,
-                        })
-                      }}
-                    >
-                      Подробнее
-                    </button>
-                  ) : null}
-                </div>
-              ))
-            ) : (
-              <div className="admin-empty-inline">Нет данных</div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderCatalogs = () => (
-    <div className="admin-panel">
-      <div className="admin-card">
-        <div className="admin-card__header admin-card__header--catalogs">
-          <h3>Справочники</h3>
-
-          <CustomSelect
-            value={selectedCatalogLabel}
-            placeholder="Выберите справочник"
-            options={catalogDefinitions.map((item) => ({
-              value: item.key,
-              label: item.label,
-            }))}
-            isOpen={catalogSelectOpen}
-            onToggle={() => setCatalogSelectOpen((prev) => !prev)}
-            onSelect={(value) => {
-              setSelectedCatalog(value as CatalogKey)
-              setEditingCatalogId(null)
-              setEditingCatalogName('')
-              setCatalogSelectOpen(false)
-            }}
-          />
-        </div>
-
-        <div className="admin-inline-form admin-inline-form--catalogs">
-          <input
-            className="admin-input"
-            value={newCatalogName}
-            onChange={(e) => setNewCatalogName(e.target.value)}
-            placeholder="Название нового элемента"
-          />
-
-          <button
-            type="button"
-            className="admin-primary-btn"
-            onClick={() => createCatalogItemMutation.mutate()}
-            disabled={createCatalogItemMutation.isPending || !newCatalogName.trim()}
-          >
-            Добавить
-          </button>
-        </div>
-
-        <div className="admin-stack">
-          {selectedCatalogQuery.data?.map((item) => (
-            <div key={item.id} className="admin-list-row">
-              {editingCatalogId === item.id ? (
-                <>
-                  <input
-                    className="admin-input admin-input--compact"
-                    value={editingCatalogName}
-                    onChange={(e) => setEditingCatalogName(e.target.value)}
-                  />
-
-                  <div className="admin-actions-row">
-                    <button
-                      type="button"
-                      className="admin-primary-btn"
-                      onClick={() => updateCatalogItemMutation.mutate(item.id)}
-                      disabled={updateCatalogItemMutation.isPending || !editingCatalogName.trim()}
-                    >
-                      Сохранить
-                    </button>
-
-                    <button
-                      type="button"
-                      className="admin-ghost-btn"
-                      onClick={() => {
-                        setEditingCatalogId(null)
-                        setEditingCatalogName('')
-                      }}
-                    >
-                      Отмена
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <strong>{item.name}</strong>
-                    <p>ID: {item.id}</p>
-                  </div>
-
-                  <div className="admin-actions-row">
-                    <button
-                      type="button"
-                      className="admin-action-btn"
-                      onClick={() => {
-                        setEditingCatalogId(item.id)
-                        setEditingCatalogName(item.name)
-                      }}
-                    >
-                      Редактировать
-                    </button>
-
-                    <button
-                      type="button"
-                      className="admin-danger-btn"
-                      onClick={() => deleteCatalogItemMutation.mutate(item.id)}
-                      disabled={deleteCatalogItemMutation.isPending}
-                    >
-                      Удалить
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
-
-          {selectedCatalogQuery.data?.length === 0 ? (
-            <div className="admin-empty-inline">Справочник пуст</div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderAdmins = () => (
-    <div className="admin-panel">
-      <div className="admin-card">
-        <div className="admin-card__header">
-          <h3>Администраторы</h3>
-
-          <div className="admin-header-actions">
-            <input
-              className="admin-input admin-input--search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Поиск по email или ID"
-            />
-            <button
-              type="button"
-              className="admin-primary-btn"
-              onClick={() => {
-                setNewAdminEmail('')
-                setNewAdminPassword('')
-                setIsCreateAdminOpen(true)
-              }}
-            >
-              Создать администратора
-            </button>
-          </div>
-        </div>
-
-        <div className="admin-stack">
-          {filteredAdmins.map((admin) => (
-            <div key={admin.id} className="admin-list-row">
-              <div>
-                <strong>{admin.email}</strong>
-                <p>
-                  ID: {admin.id} • {admin.is_active ? 'Активен' : 'Заблокирован'} • Создан:{' '}
-                  {formatDateTime(admin.created_at)}
-                </p>
-              </div>
-
-              <div className="admin-actions-row">
-                <button
-                  type="button"
-                  className="admin-action-btn"
-                  onClick={() => openDetail({ kind: 'admin', id: admin.id })}
-                >
-                  Подробнее
-                </button>
-
-                <button
-                  type="button"
-                  className="admin-action-btn"
-                  onClick={() => {
-                    setEditingAdmin(admin)
-                    setEditAdminEmail(admin.email)
-                    setEditAdminPassword('')
-                    setEditAdminIsActive(admin.is_active)
-                    setEditAdminCurrentPassword('')
-                  }}
-                >
-                  Редактировать
-                </button>
-
-                <button
-                  type="button"
-                  className="admin-danger-btn"
-                  onClick={() => {
-                    setDeletingAdmin(admin)
-                    setDeleteAdminCurrentPassword('')
-                  }}
-                >
-                  Удалить
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {filteredAdmins.length === 0 ? (
-            <div className="admin-empty-inline">Администраторы не найдены</div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderUsers = () => (
-    <div className="admin-panel">
-      <div className="admin-card">
-        <div className="admin-card__header">
-          <h3>Пользователи</h3>
-          <input
-            className="admin-input admin-input--search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по email, роли или ID"
-          />
-        </div>
-
-        <div className="admin-stack">
-          {filteredUsers.map((user) => (
-            <div key={user.id} className="admin-list-row">
-              <div>
-                <strong>{user.email}</strong>
-                <p>
-                  {getUserLabel(user)} • ID: {user.id} •{' '}
-                  {user.is_active ? 'Активен' : 'Заблокирован'}
-                </p>
-              </div>
-
-              <div className="admin-actions-row">
-                <button
-                  type="button"
-                  className="admin-action-btn"
-                  onClick={() => openDetail({ kind: 'user', id: user.id })}
-                >
-                  Подробнее
-                </button>
-
-                <button
-                  type="button"
-                  className={user.is_active ? 'admin-danger-btn' : 'admin-primary-btn'}
-                  onClick={() => toggleUserMutation.mutate(user)}
-                  disabled={toggleUserMutation.isPending}
-                >
-                  {user.is_active ? 'Заблокировать' : 'Разблокировать'}
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {filteredUsers.length === 0 ? (
-            <div className="admin-empty-inline">Нет пользователей</div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderCompanies = () => (
-    <div className="admin-panel">
-      <div className="admin-card">
-        <div className="admin-card__header">
-          <h3>Компании</h3>
-          <input
-            className="admin-input admin-input--search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по названию, сайту или ID"
-          />
-        </div>
-
-        <div className="admin-stack">
-          {filteredCompanies.map((company) => (
-            <div key={company.id} className="admin-list-row">
-              <div>
-                <strong>{company.name}</strong>
-                <p>
-                  ID: {company.id} • {company.is_active ? 'Активна' : 'Заблокирована'}
-                  {company.website ? ` • ${company.website}` : ''}
-                </p>
-              </div>
-
-              <div className="admin-actions-row">
-                <button
-                  type="button"
-                  className="admin-action-btn"
-                  onClick={() => openDetail({ kind: 'company', id: company.id })}
-                >
-                  Подробнее
-                </button>
-
-                <button
-                  type="button"
-                  className={company.is_active ? 'admin-danger-btn' : 'admin-primary-btn'}
-                  onClick={() => toggleCompanyMutation.mutate(company)}
-                  disabled={toggleCompanyMutation.isPending}
-                >
-                  {company.is_active ? 'Заблокировать' : 'Разблокировать'}
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {filteredCompanies.length === 0 ? (
-            <div className="admin-empty-inline">Нет компаний</div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderApplicants = () => (
-    <div className="admin-panel">
-      <div className="admin-card">
-        <div className="admin-card__header">
-          <h3>Соискатели</h3>
-          <input
-            className="admin-input admin-input--search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по имени, телефону, email или ID"
-          />
-        </div>
-
-        <div className="admin-stack">
-          {filteredApplicants.map((applicant) => (
-            <div key={applicant.id} className="admin-list-row">
-              <div>
-                <strong>{applicant.full_name}</strong>
-                <p>
-                  ID: {applicant.id} • {applicant.phone || 'Телефон не указан'} •{' '}
-                  {applicant.is_active ? 'Активен' : 'Заблокирован'}
-                </p>
-              </div>
-
-              <div className="admin-actions-row">
-                <button
-                  type="button"
-                  className="admin-action-btn"
-                  onClick={() => openDetail({ kind: 'applicant', id: applicant.id })}
-                >
-                  Подробнее
-                </button>
-
-                <button
-                  type="button"
-                  className={applicant.is_active ? 'admin-danger-btn' : 'admin-primary-btn'}
-                  onClick={() => toggleApplicantMutation.mutate(applicant)}
-                  disabled={toggleApplicantMutation.isPending}
-                >
-                  {applicant.is_active ? 'Заблокировать' : 'Разблокировать'}
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {filteredApplicants.length === 0 ? (
-            <div className="admin-empty-inline">Нет соискателей</div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderVacancies = () => (
-    <div className="admin-panel">
-      <div className="admin-card">
-        <div className="admin-card__header">
-          <h3>Вакансии</h3>
-          <input
-            className="admin-input admin-input--search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по названию, компании, описанию или ID"
-          />
-        </div>
-
-        <div className="admin-stack">
-          {filteredVacancies.map((vacancy) => (
-            <div key={vacancy.id} className="admin-list-row">
-              <div>
-                <strong>{vacancy.title}</strong>
-                <p>
-                  ID: {vacancy.id} • {vacancy.company_name || `Компания #${vacancy.company_id ?? '—'}`} •{' '}
-                  {formatSalary(vacancy.salary_min, vacancy.salary_max, vacancy.currency || 'BYN')}
-                </p>
-              </div>
-
-              <div className="admin-actions-row">
-                <select
-                  className="admin-select admin-select--compact"
-                  value={vacancy.status_id ?? ''}
-                  onChange={(e) =>
-                    updateVacancyStatusMutation.mutate({
-                      vacancyId: vacancy.id,
-                      statusId: Number(e.target.value),
-                    })
-                  }
-                >
-                  <option value="" disabled>
-                    Статус
-                  </option>
-                  {statusesQuery.data?.map((status) => (
-                    <option key={status.id} value={status.id}>
-                      {status.name}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  className="admin-action-btn"
-                  onClick={() => openDetail({ kind: 'vacancy', id: vacancy.id })}
-                >
-                  Подробнее
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {filteredVacancies.length === 0 ? (
-            <div className="admin-empty-inline">Нет вакансий</div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderApplications = () => (
-    <div className="admin-panel">
-      <div className="admin-card">
-        <div className="admin-card__header">
-          <h3>Отклики</h3>
-          <input
-            className="admin-input admin-input--search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по вакансии, компании, резюме или ID"
-          />
-        </div>
-
-        <div className="admin-stack">
-          {filteredApplications.map((item) => (
-            <div key={`${item.vacancy_id}-${item.resume_id}`} className="admin-list-row">
-              <div>
-                <strong>
-                  {item.vacancy_title || `Вакансия #${item.vacancy_id}`} /{' '}
-                  {item.resume_profession || `Резюме #${item.resume_id}`}
-                </strong>
-                <p>
-                  {item.company_name || 'Компания не указана'} • Статус:{' '}
-                  {statusLabels[item.status] || item.status}
-                </p>
-              </div>
-
-              <div className="admin-actions-row">
-                <select
-                  className="admin-select admin-select--compact"
-                  value={item.status}
-                  onChange={(e) =>
-                    updateApplicationStatusMutation.mutate({
-                      vacancyId: item.vacancy_id,
-                      resumeId: item.resume_id,
-                      status: e.target.value,
-                    })
-                  }
-                >
-                  <option value="pending">На рассмотрении</option>
-                  <option value="accepted">Принят</option>
-                  <option value="rejected">Отклонён</option>
-                </select>
-
-                <button
-                  type="button"
-                  className="admin-action-btn"
-                  onClick={() =>
-                    openDetail({
-                      kind: 'application',
-                      vacancyId: item.vacancy_id,
-                      resumeId: item.resume_id,
-                    })
-                  }
-                >
-                  Подробнее
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {filteredApplications.length === 0 ? (
-            <div className="admin-empty-inline">Нет откликов</div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  )
+    const title = safeString(data.vacancy_title)
+    const applicant = safeString(data.applicant_name)
+    if (title && applicant) return `Отклик: ${applicant} → ${title}`
+    if (title) return `Отклик на вакансию: ${title}`
+    return `Отклик: вакансия ${detailTarget.vacancyId}, резюме ${detailTarget.resumeId}`
+  }
 
   const renderDetailModal = () => {
     if (!detailTarget) return null
 
-    const title =
-      detailTarget.kind === 'admin'
-        ? `Администратор #${detailTarget.id}`
-        : detailTarget.kind === 'user'
-          ? `Пользователь #${detailTarget.id}`
-          : detailTarget.kind === 'company'
-            ? `Компания #${detailTarget.id}`
-            : detailTarget.kind === 'applicant'
-              ? `Соискатель #${detailTarget.id}`
-              : detailTarget.kind === 'vacancy'
-                ? `Вакансия #${detailTarget.id}`
-                : `Отклик ${detailTarget.vacancyId}/${detailTarget.resumeId}`
-
     return (
-      <Modal
-        title={title}
-        subtitle="Подробная информация по выбранной сущности."
-        onClose={closeDetail}
-      >
+      <Modal title={getDetailTitle()} subtitle="Подробная информация по выбранной сущности." onClose={closeDetail}>
         {detailLoading ? (
           <div className="admin-empty-inline">Загрузка...</div>
         ) : !detailData ? (
@@ -2380,108 +1903,292 @@ export const AdminPage = () => {
     )
   }
 
-  const tabContent: Record<TabKey, JSX.Element> = {
-    dashboard: renderDashboard(),
-    catalogs: renderCatalogs(),
-    admins: renderAdmins(),
-    users: renderUsers(),
-    companies: renderCompanies(),
-    applicants: renderApplicants(),
-    vacancies: renderVacancies(),
-    applications: renderApplications(),
+  const renderDashboard = () => (
+    <div className="admin-panel">
+      <div className="admin-stats-grid">
+        <div className="admin-stat-card">
+          <span>Пользователи</span>
+          <strong title={String(dashboard.users_total ?? 0)}>{formatCompactNumber(dashboard.users_total)}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Активные</span>
+          <strong title={String(dashboard.users_active ?? 0)}>{formatCompactNumber(dashboard.users_active)}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Компании</span>
+          <strong title={String(dashboard.companies_total ?? 0)}>{formatCompactNumber(dashboard.companies_total)}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Соискатели</span>
+          <strong title={String(dashboard.applicants_total ?? 0)}>{formatCompactNumber(dashboard.applicants_total)}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Вакансии</span>
+          <strong title={String(dashboard.vacancies_total ?? 0)}>{formatCompactNumber(dashboard.vacancies_total)}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Отклики</span>
+          <strong title={String(dashboard.applications_total ?? 0)}>{formatCompactNumber(dashboard.applications_total)}</strong>
+        </div>
+      </div>
+
+      <div className="admin-analytics-shell">
+        <div className="admin-analytics-sidebar">
+          <div className="admin-analytics-sidebar__title">Выбор графика</div>
+          {dashboardCharts.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              className={dashboardChart === item.value ? 'is-active' : ''}
+              onClick={() => setDashboardChart(item.value)}
+            >
+              <strong>{item.label}</strong>
+              <span>{item.description}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="admin-analytics-main">
+          <div className="admin-analytics-toolbar">
+            <div>
+              <h3>{dashboardChartMeta.label}</h3>
+              <p>{dashboardChartMeta.description}</p>
+            </div>
+
+            <div className="admin-analytics-actions">
+              {dashboardChart === 'top-professions' ? (
+                <div className="admin-source-tabs" aria-label="Источник профессий">
+                  <button
+                    type="button"
+                    className={professionChartSource === 'vacancies' ? 'is-active' : ''}
+                    onClick={() => setProfessionChartSource('vacancies')}
+                  >
+                    Работодатели
+                  </button>
+                  <button
+                    type="button"
+                    className={professionChartSource === 'resumes' ? 'is-active' : ''}
+                    onClick={() => setProfessionChartSource('resumes')}
+                  >
+                    Соискатели
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="admin-period-tabs">
+                {dashboardPeriods.map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={dashboardPeriod === item.value ? 'is-active' : ''}
+                    onClick={() => setDashboardPeriod(item.value)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <ChartBlock
+            title={dashboardChartMeta.label}
+            subtitle={dashboardChartMeta.description}
+            points={dashboardChartPoints}
+            variant={dashboardChartVariant}
+          />
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderCatalogs = () => {
+    const items = getPageItems(filteredCatalogItems, pages.catalogs)
+    return <div className="admin-panel"><div className="admin-card"><div className="admin-card__header admin-card__header--stacked"><div><h3>Справочники</h3><p>Выберите справочник, найдите нужный элемент или добавьте новый.</p></div><div className="admin-catalog-layout"><aside className="admin-catalog-menu"><div className="admin-catalog-menu__title">Тип справочника</div>{catalogDefinitions.map((item) => <button key={item.key} type="button" className={selectedCatalog === item.key ? 'is-active' : ''} onClick={() => { setSelectedCatalog(item.key); setEditingCatalogId(null); setEditingCatalogName(''); setCatalogSearch(''); resetPage('catalogs') }}><span>{item.label}</span></button>)}</aside><div className="admin-catalog-content"><div className="admin-catalog-content__header"><div><span>Текущий справочник</span><strong>{selectedCatalogLabel}</strong></div><div className="admin-catalog-count">{filteredCatalogItems.length} элементов</div></div><div className="admin-catalog-tools"><SearchBox value={catalogSearch} onChange={(value) => { setCatalogSearch(value); resetPage('catalogs') }} placeholder={`Поиск: ${selectedCatalogLabel}`} /><div className="admin-catalog-create"><input value={newCatalogName} onChange={(event) => setNewCatalogName(event.target.value)} placeholder="Название нового элемента" /><button type="button" className="admin-primary-btn" onClick={() => createCatalogItemMutation.mutate()} disabled={createCatalogItemMutation.isPending || !newCatalogName.trim()}>Добавить</button></div></div><div className="admin-stack">{items.map((item) => <div key={item.id} className="admin-list-row">{editingCatalogId === item.id ? <><input className="admin-input admin-input--compact" value={editingCatalogName} onChange={(event) => setEditingCatalogName(event.target.value)} /><div className="admin-actions-row"><button type="button" className="admin-primary-btn" onClick={() => updateCatalogItemMutation.mutate(item.id)} disabled={updateCatalogItemMutation.isPending || !editingCatalogName.trim()}>Сохранить</button><button type="button" className="admin-ghost-btn" onClick={() => { setEditingCatalogId(null); setEditingCatalogName('') }}>Отмена</button></div></> : <><div><strong>{item.name}</strong><p>ID: {item.id}</p></div><div className="admin-actions-row"><button type="button" className="admin-action-btn" onClick={() => { setEditingCatalogId(item.id); setEditingCatalogName(item.name) }}>Редактировать</button><button type="button" className="admin-danger-btn" onClick={() => deleteCatalogItemMutation.mutate(item.id)} disabled={deleteCatalogItemMutation.isPending}>Удалить</button></div></>}</div>)}{filteredCatalogItems.length === 0 ? <div className="admin-empty-inline">Элементы не найдены</div> : null}</div><Pagination page={pages.catalogs} total={filteredCatalogItems.length} pageSize={PAGE_SIZE} onChange={(page) => setPage('catalogs', page)} /></div></div></div></div></div>
   }
+
+  const renderAdmins = () => {
+    const items = getPageItems(filteredAdmins, pages.admins)
+
+    return (
+      <div className="admin-panel">
+        <div className="admin-card">
+          <div className="admin-card__header admin-card__header--stacked">
+            <div>
+              <h3>Администраторы</h3>
+              {!isRootAdmin ? <p>Создание, редактирование и удаление доступно только главному администратору ID 1.</p> : null}
+            </div>
+
+            <FilterPanel>
+              <SearchBox value={search} onChange={(value) => { setSearch(value); resetPage('admins') }} placeholder="Email или ID" />
+              <FilterSelect label="Статус" value={adminStatusFilter} onChange={(value) => { setAdminStatusFilter(value as CommonStatusFilter); resetPage('admins') }}>
+                <option value="all">Все</option>
+                <option value="active">Активные</option>
+                <option value="blocked">Заблокированные</option>
+              </FilterSelect>
+              <button type="button" className="admin-ghost-btn" onClick={resetCurrentFilters}>Сбросить</button>
+              {isRootAdmin ? <button type="button" className="admin-primary-btn" onClick={openCreateAdminModal}>Создать администратора</button> : null}
+            </FilterPanel>
+          </div>
+
+          <div className="admin-stack">
+            {items.map((admin) => {
+              const isMainAdmin = admin.id === 1
+
+              return (
+                <div key={admin.id} className="admin-list-row">
+                  <div>
+                    <strong>{admin.email}</strong>
+                    <p>
+                      {isMainAdmin ? 'Главный администратор' : 'Администратор'} • ID: {admin.id} • {admin.is_active ? 'Активен' : 'Заблокирован'} • Создан: {formatDateTime(admin.created_at)}
+                    </p>
+                  </div>
+
+                  <div className="admin-actions-row">
+                    <button type="button" className="admin-action-btn" onClick={() => openDetail({ kind: 'admin', id: admin.id })}>Подробнее</button>
+                    {isRootAdmin ? (
+                      <>
+                        <button
+                          type="button"
+                          className="admin-action-btn"
+                          onClick={() => {
+                            setFormError('')
+                            setEditingAdmin(admin)
+                            setEditAdminEmail(admin.email)
+                            setEditAdminPassword('')
+                            setEditAdminIsActive(admin.id === 1 ? true : admin.is_active)
+                            setEditAdminCurrentPassword('')
+                          }}
+                        >
+                          Редактировать
+                        </button>
+                        <button
+                          type="button"
+                          className="admin-danger-btn"
+                          onClick={() => {
+                            if (isMainAdmin) {
+                              const text = 'Главного администратора нельзя удалить.'
+                              setFormError(text)
+                              setMessage(text)
+                              return
+                            }
+                            setFormError('')
+                            setDeletingAdmin(admin)
+                            setDeleteAdminCurrentPassword('')
+                          }}
+                          disabled={isMainAdmin}
+                          title={isMainAdmin ? 'Главного администратора нельзя удалить' : undefined}
+                        >
+                          Удалить
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
+            {filteredAdmins.length === 0 ? <div className="admin-empty-inline">Администраторы не найдены</div> : null}
+          </div>
+
+          <Pagination page={pages.admins} total={filteredAdmins.length} pageSize={PAGE_SIZE} onChange={(page) => setPage('admins', page)} />
+        </div>
+      </div>
+    )
+  }
+
+  const renderUsers = () => {
+    const items = getPageItems(filteredUsers, pages.users)
+
+    return (
+      <div className="admin-panel">
+        <div className="admin-card">
+          <div className="admin-card__header admin-card__header--stacked">
+            <h3>Пользователи</h3>
+            <FilterPanel>
+              <SearchBox value={search} onChange={(value) => { setSearch(value); resetPage('users') }} placeholder="Email, роль или ID" />
+              <FilterSelect label="Роль" value={userRoleFilter} onChange={(value) => { setUserRoleFilter(value as UserRoleFilter); resetPage('users') }}>
+                <option value="all">Все</option>
+                <option value="admin">Админы</option>
+                <option value="company">Работодатели</option>
+                <option value="applicant">Соискатели</option>
+              </FilterSelect>
+              <FilterSelect label="Статус" value={userStatusFilter} onChange={(value) => { setUserStatusFilter(value as CommonStatusFilter); resetPage('users') }}>
+                <option value="all">Все</option>
+                <option value="active">Активные</option>
+                <option value="blocked">Заблокированные</option>
+              </FilterSelect>
+              <button type="button" className="admin-ghost-btn" onClick={resetCurrentFilters}>Сбросить</button>
+            </FilterPanel>
+          </div>
+
+          <div className="admin-stack">
+            {items.map((user) => {
+              const isMainAdmin = user.id === 1
+
+              return (
+                <div key={user.id} className="admin-list-row">
+                  <div>
+                    <strong>{user.email}</strong>
+                    <p>{isMainAdmin ? 'Главный администратор' : getUserLabel(user)} • ID: {user.id} • {user.is_active ? 'Активен' : 'Заблокирован'}</p>
+                  </div>
+
+                  <div className="admin-actions-row">
+                    <button type="button" className="admin-action-btn" onClick={() => openDetail({ kind: 'user', id: user.id })}>Подробнее</button>
+                    <button
+                      type="button"
+                      className={user.is_active ? 'admin-danger-btn' : 'admin-primary-btn'}
+                      onClick={() => toggleUserMutation.mutate(user)}
+                      disabled={toggleUserMutation.isPending || isMainAdmin}
+                      title={isMainAdmin ? 'Главного администратора нельзя заблокировать' : undefined}
+                    >
+                      {user.is_active ? 'Заблокировать' : 'Разблокировать'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+            {filteredUsers.length === 0 ? <div className="admin-empty-inline">Нет пользователей</div> : null}
+          </div>
+
+          <Pagination page={pages.users} total={filteredUsers.length} pageSize={PAGE_SIZE} onChange={(page) => setPage('users', page)} />
+        </div>
+      </div>
+    )
+  }
+
+  const renderCompanies = () => { const items = getPageItems(filteredCompanies, pages.companies); return <div className="admin-panel"><div className="admin-card"><div className="admin-card__header admin-card__header--stacked"><h3>Компании</h3><FilterPanel><SearchBox value={search} onChange={(value) => { setSearch(value); resetPage('companies') }} placeholder="Название, email, сайт или ID" /><FilterSelect label="Статус" value={companyStatusFilter} onChange={(value) => { setCompanyStatusFilter(value as CommonStatusFilter); resetPage('companies') }}><option value="all">Все</option><option value="active">Активные</option><option value="blocked">Заблокированные</option></FilterSelect><FilterSelect label="Город" value={companyCityFilter} onChange={(value) => { setCompanyCityFilter(value); resetPage('companies') }}><option value="all">Все</option>{companyCityOptions.map((city) => <option key={city} value={city}>{city}</option>)}</FilterSelect><FilterSelect label="Тип" value={companyTypeFilter} onChange={(value) => { setCompanyTypeFilter(value); resetPage('companies') }}><option value="all">Все</option>{companyTypeOptions.map((type) => <option key={type} value={type}>{type}</option>)}</FilterSelect><button type="button" className="admin-ghost-btn" onClick={resetCurrentFilters}>Сбросить</button></FilterPanel></div><div className="admin-stack">{items.map((company) => <div key={company.id} className="admin-list-row"><div><strong>{company.name}</strong><p>ID: {company.id} • {company.is_active ? 'Активна' : 'Заблокирована'}{company.website ? ` • ${company.website}` : ''}</p></div><div className="admin-actions-row"><button type="button" className="admin-action-btn" onClick={() => openDetail({ kind: 'company', id: company.id })}>Подробнее</button><button type="button" className={company.is_active ? 'admin-danger-btn' : 'admin-primary-btn'} onClick={() => toggleCompanyMutation.mutate(company)} disabled={toggleCompanyMutation.isPending}>{company.is_active ? 'Заблокировать' : 'Разблокировать'}</button></div></div>)}{filteredCompanies.length === 0 ? <div className="admin-empty-inline">Нет компаний</div> : null}</div><Pagination page={pages.companies} total={filteredCompanies.length} pageSize={PAGE_SIZE} onChange={(page) => setPage('companies', page)} /></div></div> }
+
+  const renderApplicants = () => { const items = getPageItems(filteredApplicants, pages.applicants); return <div className="admin-panel"><div className="admin-card"><div className="admin-card__header admin-card__header--stacked"><h3>Соискатели</h3><FilterPanel><SearchBox value={search} onChange={(value) => { setSearch(value); resetPage('applicants') }} placeholder="Имя, телефон, email или ID" /><FilterSelect label="Статус" value={applicantStatusFilter} onChange={(value) => { setApplicantStatusFilter(value as CommonStatusFilter); resetPage('applicants') }}><option value="all">Все</option><option value="active">Активные</option><option value="blocked">Заблокированные</option></FilterSelect><FilterSelect label="Город" value={applicantCityFilter} onChange={(value) => { setApplicantCityFilter(value); resetPage('applicants') }}><option value="all">Все</option>{applicantCityOptions.map((city) => <option key={city} value={city}>{city}</option>)}</FilterSelect><FilterSelect label="Резюме" value={applicantResumeFilter} onChange={(value) => { setApplicantResumeFilter(value as ResumeFilter); resetPage('applicants') }}><option value="all">Все</option><option value="has-resumes">Есть резюме</option><option value="no-resumes">Без резюме</option></FilterSelect><button type="button" className="admin-ghost-btn" onClick={resetCurrentFilters}>Сбросить</button></FilterPanel></div><div className="admin-stack">{items.map((applicant) => <div key={applicant.id} className="admin-list-row"><div><strong>{applicant.full_name}</strong><p>ID: {applicant.id} • {applicant.phone || 'Телефон не указан'} • {applicant.is_active ? 'Активен' : 'Заблокирован'}</p></div><div className="admin-actions-row"><button type="button" className="admin-action-btn" onClick={() => openDetail({ kind: 'applicant', id: applicant.id })}>Подробнее</button><button type="button" className={applicant.is_active ? 'admin-danger-btn' : 'admin-primary-btn'} onClick={() => toggleApplicantMutation.mutate(applicant)} disabled={toggleApplicantMutation.isPending}>{applicant.is_active ? 'Заблокировать' : 'Разблокировать'}</button></div></div>)}{filteredApplicants.length === 0 ? <div className="admin-empty-inline">Нет соискателей</div> : null}</div><Pagination page={pages.applicants} total={filteredApplicants.length} pageSize={PAGE_SIZE} onChange={(page) => setPage('applicants', page)} /></div></div> }
+
+  const renderVacancies = () => { const items = getPageItems(filteredVacancies, pages.vacancies); return <div className="admin-panel"><div className="admin-card"><div className="admin-card__header admin-card__header--stacked"><h3>Вакансии</h3><FilterPanel><SearchBox value={search} onChange={(value) => { setSearch(value); resetPage('vacancies') }} placeholder="Название, компания, описание или ID" /><FilterSelect label="Статус" value={vacancyStatusFilter} onChange={(value) => { setVacancyStatusFilter(value); resetPage('vacancies') }}><option value="all">Все</option>{vacancyStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}</FilterSelect><FilterSelect label="Город" value={vacancyCityFilter} onChange={(value) => { setVacancyCityFilter(value); resetPage('vacancies') }}><option value="all">Все</option>{vacancyCityOptions.map((city) => <option key={city} value={city}>{city}</option>)}</FilterSelect><FilterSelect label="Профессия" value={vacancyProfessionFilter} onChange={(value) => { setVacancyProfessionFilter(value); resetPage('vacancies') }}><option value="all">Все</option>{vacancyProfessionOptions.map((profession) => <option key={profession} value={profession}>{profession}</option>)}</FilterSelect><FilterSelect label="Зарплата" value={vacancySalaryFilter} onChange={(value) => { setVacancySalaryFilter(value as SalaryFilter); resetPage('vacancies') }}><option value="all">Любая</option><option value="with-salary">Указана</option><option value="no-salary">Не указана</option></FilterSelect><button type="button" className="admin-ghost-btn" onClick={resetCurrentFilters}>Сбросить</button></FilterPanel></div><div className="admin-stack">{items.map((vacancy) => <div key={vacancy.id} className="admin-list-row"><div><strong>{vacancy.title}</strong><p>ID: {vacancy.id} • {vacancy.company_name || companiesQuery.data?.find((company) => company.id === vacancy.company_id)?.name || `Компания ID ${vacancy.company_id ?? '—'}`} • {formatSalary(vacancy.salary_min, vacancy.salary_max, vacancy.currency || 'BYN')}</p></div><div className="admin-actions-row"><select className="admin-select admin-select--compact" value={vacancy.status_id ?? ''} onChange={(event) => updateVacancyStatusMutation.mutate({ vacancyId: vacancy.id, statusId: Number(event.target.value) })}><option value="" disabled>Статус</option>{statusesQuery.data?.map((status) => <option key={status.id} value={status.id}>{status.name}</option>)}</select><button type="button" className="admin-action-btn" onClick={() => openDetail({ kind: 'vacancy', id: vacancy.id })}>Подробнее</button></div></div>)}{filteredVacancies.length === 0 ? <div className="admin-empty-inline">Нет вакансий</div> : null}</div><Pagination page={pages.vacancies} total={filteredVacancies.length} pageSize={PAGE_SIZE} onChange={(page) => setPage('vacancies', page)} /></div></div> }
+
+  const renderApplications = () => { const items = getPageItems(filteredApplications, pages.applications); return <div className="admin-panel"><div className="admin-card"><div className="admin-card__header admin-card__header--stacked"><h3>Отклики</h3><FilterPanel><SearchBox value={search} onChange={(value) => { setSearch(value); resetPage('applications') }} placeholder="Вакансия, компания, резюме или ID" /><FilterSelect label="Статус" value={applicationStatusFilter} onChange={(value) => { setApplicationStatusFilter(value); resetPage('applications') }}><option value="all">Все</option>{applicationStatusOptions.map((status) => <option key={status} value={status}>{statusLabels[status] || status}</option>)}</FilterSelect><FilterSelect label="Компания" value={applicationCompanyFilter} onChange={(value) => { setApplicationCompanyFilter(value); resetPage('applications') }}><option value="all">Все</option>{applicationCompanyOptions.map((company) => <option key={company} value={company}>{company}</option>)}</FilterSelect><button type="button" className="admin-ghost-btn" onClick={resetCurrentFilters}>Сбросить</button></FilterPanel></div><div className="admin-stack">{items.map((item) => <div key={`${item.vacancy_id}-${item.resume_id}`} className="admin-list-row"><div><strong>{item.vacancy_title || `Вакансия #${item.vacancy_id}`} / {item.resume_profession || `Резюме #${item.resume_id}`}</strong><p>{item.company_name || 'Компания не указана'} • Статус: {statusLabels[item.status] || item.status}</p></div><div className="admin-actions-row"><select className="admin-select admin-select--compact" value={item.status} onChange={(event) => updateApplicationStatusMutation.mutate({ vacancyId: item.vacancy_id, resumeId: item.resume_id, status: event.target.value })}><option value="pending">На рассмотрении</option><option value="accepted">Принят</option><option value="rejected">Отклонён</option></select><button type="button" className="admin-action-btn" onClick={() => openDetail({ kind: 'application', vacancyId: item.vacancy_id, resumeId: item.resume_id })}>Подробнее</button></div></div>)}{filteredApplications.length === 0 ? <div className="admin-empty-inline">Нет откликов</div> : null}</div><Pagination page={pages.applications} total={filteredApplications.length} pageSize={PAGE_SIZE} onChange={(page) => setPage('applications', page)} /></div></div> }
+
+  const tabContent: Record<TabKey, JSX.Element> = { dashboard: renderDashboard(), catalogs: renderCatalogs(), admins: renderAdmins(), users: renderUsers(), companies: renderCompanies(), applicants: renderApplicants(), vacancies: renderVacancies(), applications: renderApplications() }
 
   return (
     <div className="admin-dashboard">
       <aside className="admin-sidebar">
-        <div className="admin-sidebar__brand">
-        </div>
-
         <div className="admin-sidebar__nav">
-          <button
-            type="button"
-            className={activeTab === 'dashboard' ? 'active' : ''}
-            onClick={() => {
-              setActiveTab('dashboard')
-              setSearch('')
-            }}
-          >
-            Обзор
-          </button>
-
-          <button
-            type="button"
-            className={activeTab === 'catalogs' ? 'active' : ''}
-            onClick={() => {
-              setActiveTab('catalogs')
-              setSearch('')
-            }}
-          >
-            Справочники
-          </button>
-
-          <button
-            type="button"
-            className={activeTab === 'admins' ? 'active' : ''}
-            onClick={() => {
-              setActiveTab('admins')
-              setSearch('')
-            }}
-          >
-            Администраторы
-          </button>
-
-          <button
-            type="button"
-            className={activeTab === 'users' ? 'active' : ''}
-            onClick={() => setActiveTab('users')}
-          >
-            Пользователи
-          </button>
-
-          <button
-            type="button"
-            className={activeTab === 'companies' ? 'active' : ''}
-            onClick={() => setActiveTab('companies')}
-          >
-            Компании
-          </button>
-
-          <button
-            type="button"
-            className={activeTab === 'applicants' ? 'active' : ''}
-            onClick={() => setActiveTab('applicants')}
-          >
-            Соискатели
-          </button>
-
-          <button
-            type="button"
-            className={activeTab === 'vacancies' ? 'active' : ''}
-            onClick={() => setActiveTab('vacancies')}
-          >
-            Вакансии
-          </button>
-
-          <button
-            type="button"
-            className={activeTab === 'applications' ? 'active' : ''}
-            onClick={() => setActiveTab('applications')}
-          >
-            Отклики
-          </button>
+          <button type="button" className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => resetSearchAndFilters('dashboard')}>Обзор</button>
+          <button type="button" className={activeTab === 'catalogs' ? 'active' : ''} onClick={() => resetSearchAndFilters('catalogs')}>Справочники</button>
+          <button type="button" className={activeTab === 'admins' ? 'active' : ''} onClick={() => resetSearchAndFilters('admins')}>Администраторы</button>
+          <button type="button" className={activeTab === 'users' ? 'active' : ''} onClick={() => resetSearchAndFilters('users')}>Пользователи</button>
+          <button type="button" className={activeTab === 'companies' ? 'active' : ''} onClick={() => resetSearchAndFilters('companies')}>Компании</button>
+          <button type="button" className={activeTab === 'applicants' ? 'active' : ''} onClick={() => resetSearchAndFilters('applicants')}>Соискатели</button>
+          <button type="button" className={activeTab === 'vacancies' ? 'active' : ''} onClick={() => resetSearchAndFilters('vacancies')}>Вакансии</button>
+          <button type="button" className={activeTab === 'applications' ? 'active' : ''} onClick={() => resetSearchAndFilters('applications')}>Отклики</button>
         </div>
-
         <div className="admin-sidebar__footer">
           <div className="admin-sidebar__current-user">
             <span>Текущий админ</span>
             <strong>{authMeQuery.data?.email ? maskEmail(authMeQuery.data.email) : '—'}</strong>
+            {isRootAdmin ? <em>Главный администратор</em> : null}
           </div>
-
           <button
             type="button"
             className="admin-sidebar__settings"
             onClick={() => {
+              setFormError('')
               setSelfEmail(authMeQuery.data?.email || '')
               setSelfNewPassword('')
               setSelfCurrentPassword('')
@@ -2490,17 +2197,7 @@ export const AdminPage = () => {
           >
             Изменить свои данные
           </button>
-
-          <button
-            type="button"
-            className="admin-sidebar__danger"
-            onClick={() => {
-              authSession.clear()
-              navigate('/admin/login', { replace: true })
-            }}
-          >
-            Выйти
-          </button>
+          <button type="button" className="admin-sidebar__danger" onClick={() => { authSession.clear(); navigate('/admin/login', { replace: true }) }}>Выйти</button>
         </div>
       </aside>
 
@@ -2519,7 +2216,6 @@ export const AdminPage = () => {
           </h2>
           <p>{message}</p>
         </div>
-
         <section className="admin-content">{tabContent[activeTab]}</section>
       </main>
 
@@ -2528,9 +2224,10 @@ export const AdminPage = () => {
       {isCreateAdminOpen ? (
         <Modal
           title="Создание администратора"
-          subtitle="Новый пользователь сразу получит роль администратора."
-          onClose={() => setIsCreateAdminOpen(false)}
+          subtitle="Новый пользователь сразу получит роль администратора. Доступно только главному админу."
+          onClose={closeCreateAdminModal}
         >
+          <InlineAlert>{formError}</InlineAlert>
           <div className="admin-form-grid">
             <label className="admin-field">
               <span>Email</span>
@@ -2538,36 +2235,30 @@ export const AdminPage = () => {
                 className="admin-input"
                 type="email"
                 value={newAdminEmail}
-                onChange={(e) => setNewAdminEmail(e.target.value)}
+                onChange={(event) => { setNewAdminEmail(event.target.value); setFormError('') }}
                 placeholder="admin@jobfinder.by"
+                autoComplete="email"
               />
+              <FieldHint variant={newAdminEmail && getEmailError(newAdminEmail) ? 'danger' : 'muted'}>
+                {newAdminEmail && getEmailError(newAdminEmail) ? getEmailError(newAdminEmail) : 'Формат: name@example.com. Почта должна быть уникальной.'}
+              </FieldHint>
             </label>
-
-            <label className="admin-field">
-              <span>Пароль</span>
-              <input
-                className="admin-input"
-                type="password"
-                value={newAdminPassword}
-                onChange={(e) => setNewAdminPassword(e.target.value)}
-                placeholder="Минимум 8 символов"
-              />
-            </label>
+            <PasswordInput
+              label="Пароль"
+              value={newAdminPassword}
+              onChange={(value) => { setNewAdminPassword(value); setFormError('') }}
+              placeholder="Минимум 8 символов"
+              helper="Минимум 8 символов. Лучше использовать буквы, цифры и спецсимволы."
+              error={newAdminPassword ? getRequiredPasswordError(newAdminPassword) : ''}
+            />
           </div>
-
           <div className="admin-modal__footer">
-            <button type="button" className="admin-ghost-btn" onClick={() => setIsCreateAdminOpen(false)}>
-              Отмена
-            </button>
+            <button type="button" className="admin-ghost-btn" onClick={closeCreateAdminModal}>Отмена</button>
             <button
               type="button"
               className="admin-primary-btn"
-              onClick={() => createAdminMutation.mutate()}
-              disabled={
-                createAdminMutation.isPending ||
-                !newAdminEmail.trim() ||
-                newAdminPassword.trim().length < 8
-              }
+              onClick={handleCreateAdmin}
+              disabled={createAdminMutation.isPending || !isRootAdmin}
             >
               {createAdminMutation.isPending ? 'Создаём...' : 'Создать'}
             </button>
@@ -2577,10 +2268,11 @@ export const AdminPage = () => {
 
       {editingAdmin ? (
         <Modal
-          title={`Редактирование администратора #${editingAdmin.id}`}
-          subtitle="Для сохранения изменений требуется пароль текущего администратора."
-          onClose={() => setEditingAdmin(null)}
+          title={`Редактирование администратора: ${editingAdmin.email}`}
+          subtitle="Для сохранения изменений требуется пароль текущего главного администратора."
+          onClose={closeEditAdminModal}
         >
+          <InlineAlert>{formError}</InlineAlert>
           <div className="admin-form-grid">
             <label className="admin-field">
               <span>Email</span>
@@ -2588,57 +2280,47 @@ export const AdminPage = () => {
                 className="admin-input"
                 type="email"
                 value={editAdminEmail}
-                onChange={(e) => setEditAdminEmail(e.target.value)}
-                placeholder="Введите email"
+                onChange={(event) => { setEditAdminEmail(event.target.value); setFormError('') }}
+                placeholder="admin@jobfinder.by"
+                autoComplete="email"
               />
+              <FieldHint variant={editAdminEmail && getEmailError(editAdminEmail) ? 'danger' : 'muted'}>
+                {editAdminEmail && getEmailError(editAdminEmail) ? getEmailError(editAdminEmail) : 'Формат: name@example.com.'}
+              </FieldHint>
             </label>
-
-            <label className="admin-field">
-              <span>Новый пароль</span>
-              <input
-                className="admin-input"
-                type="password"
-                value={editAdminPassword}
-                onChange={(e) => setEditAdminPassword(e.target.value)}
-                placeholder="Оставь пустым, если не меняешь"
-              />
-            </label>
-
-            <label className="admin-field admin-field--full">
-              <span>Пароль текущего администратора</span>
-              <input
-                className="admin-input"
-                type="password"
-                value={editAdminCurrentPassword}
-                onChange={(e) => setEditAdminCurrentPassword(e.target.value)}
-                placeholder="Подтверждение действия"
-              />
-            </label>
-
+            <PasswordInput
+              label="Новый пароль"
+              value={editAdminPassword}
+              onChange={(value) => { setEditAdminPassword(value); setFormError('') }}
+              placeholder="Оставь пустым, если не меняешь"
+              helper="Оставь пустым, если пароль менять не нужно."
+              error={editAdminPassword ? getOptionalPasswordError(editAdminPassword) : ''}
+            />
+            <PasswordInput
+              label="Пароль текущего администратора"
+              value={editAdminCurrentPassword}
+              onChange={(value) => { setEditAdminCurrentPassword(value); setFormError('') }}
+              placeholder="Подтверждение действия"
+              helper="Нужен для защиты изменения данных администратора."
+              className="admin-field--full"
+            />
             <label className="admin-checkbox admin-field--full">
               <input
                 type="checkbox"
-                checked={editAdminIsActive}
-                onChange={(e) => setEditAdminIsActive(e.target.checked)}
+                checked={editingAdmin.id === 1 ? true : editAdminIsActive}
+                onChange={(event) => setEditAdminIsActive(event.target.checked)}
+                disabled={editingAdmin.id === 1}
               />
-              <span>Администратор активен</span>
+              <span>{editingAdmin.id === 1 ? 'Главный администратор всегда активен' : 'Администратор активен'}</span>
             </label>
           </div>
-
           <div className="admin-modal__footer">
-            <button type="button" className="admin-ghost-btn" onClick={() => setEditingAdmin(null)}>
-              Отмена
-            </button>
+            <button type="button" className="admin-ghost-btn" onClick={closeEditAdminModal}>Отмена</button>
             <button
               type="button"
               className="admin-primary-btn"
-              onClick={() => updateAdminMutation.mutate(editingAdmin.id)}
-              disabled={
-                updateAdminMutation.isPending ||
-                !editAdminEmail.trim() ||
-                !editAdminCurrentPassword.trim() ||
-                (editAdminPassword.trim().length > 0 && editAdminPassword.trim().length < 8)
-              }
+              onClick={() => handleUpdateAdmin(editingAdmin)}
+              disabled={updateAdminMutation.isPending || !isRootAdmin}
             >
               {updateAdminMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
             </button>
@@ -2648,34 +2330,28 @@ export const AdminPage = () => {
 
       {deletingAdmin ? (
         <Modal
-          title={`Удаление администратора #${deletingAdmin.id}`}
-          subtitle="Удаление необратимо. Для подтверждения введи пароль текущего администратора."
-          onClose={() => setDeletingAdmin(null)}
+          title={`Удаление администратора: ${deletingAdmin.email}`}
+          subtitle="Удаление необратимо. Для подтверждения введи пароль текущего главного администратора."
+          onClose={closeDeleteAdminModal}
         >
+          <InlineAlert>{formError}</InlineAlert>
           <div className="admin-warning-box">
             Будет удалён администратор <strong>{deletingAdmin.email}</strong>.
           </div>
-
-          <label className="admin-field">
-            <span>Пароль текущего администратора</span>
-            <input
-              className="admin-input"
-              type="password"
-              value={deleteAdminCurrentPassword}
-              onChange={(e) => setDeleteAdminCurrentPassword(e.target.value)}
-              placeholder="Подтверждение действия"
-            />
-          </label>
-
+          <PasswordInput
+            label="Пароль текущего администратора"
+            value={deleteAdminCurrentPassword}
+            onChange={(value) => { setDeleteAdminCurrentPassword(value); setFormError('') }}
+            placeholder="Подтверждение действия"
+            helper="Введите пароль главного администратора, чтобы подтвердить удаление."
+          />
           <div className="admin-modal__footer">
-            <button type="button" className="admin-ghost-btn" onClick={() => setDeletingAdmin(null)}>
-              Отмена
-            </button>
+            <button type="button" className="admin-ghost-btn" onClick={closeDeleteAdminModal}>Отмена</button>
             <button
               type="button"
               className="admin-danger-btn"
-              onClick={() => deleteAdminMutation.mutate(deletingAdmin.id)}
-              disabled={deleteAdminMutation.isPending || !deleteAdminCurrentPassword.trim()}
+              onClick={() => handleDeleteAdmin(deletingAdmin)}
+              disabled={deleteAdminMutation.isPending || deletingAdmin.id === 1 || !isRootAdmin}
             >
               {deleteAdminMutation.isPending ? 'Удаляем...' : 'Удалить'}
             </button>
@@ -2684,11 +2360,8 @@ export const AdminPage = () => {
       ) : null}
 
       {isSelfSettingsOpen ? (
-        <Modal
-          title="Мои данные"
-          subtitle="Здесь можно изменить свой email и пароль."
-          onClose={() => setIsSelfSettingsOpen(false)}
-        >
+        <Modal title="Мои данные" subtitle="Здесь можно изменить свой email и пароль." onClose={closeSelfSettingsModal}>
+          <InlineAlert>{formError}</InlineAlert>
           <div className="admin-form-grid">
             <label className="admin-field">
               <span>Новый email</span>
@@ -2696,52 +2369,38 @@ export const AdminPage = () => {
                 className="admin-input"
                 type="email"
                 value={selfEmail}
-                onChange={(e) => setSelfEmail(e.target.value)}
-                placeholder="Введите email"
+                onChange={(event) => { setSelfEmail(event.target.value); setFormError('') }}
+                placeholder="admin@jobfinder.by"
+                autoComplete="email"
               />
+              <FieldHint variant={selfEmail && getEmailError(selfEmail) ? 'danger' : 'muted'}>
+                {selfEmail && getEmailError(selfEmail) ? getEmailError(selfEmail) : 'Формат: name@example.com.'}
+              </FieldHint>
             </label>
-
-            <label className="admin-field">
-              <span>Новый пароль</span>
-              <input
-                className="admin-input"
-                type="password"
-                value={selfNewPassword}
-                onChange={(e) => setSelfNewPassword(e.target.value)}
-                placeholder="Оставь пустым, если не меняешь"
-              />
-            </label>
-
-            <label className="admin-field admin-field--full">
-              <span>Текущий пароль</span>
-              <input
-                className="admin-input"
-                type="password"
-                value={selfCurrentPassword}
-                onChange={(e) => setSelfCurrentPassword(e.target.value)}
-                placeholder="Подтверждение действия"
-              />
-            </label>
+            <PasswordInput
+              label="Новый пароль"
+              value={selfNewPassword}
+              onChange={(value) => { setSelfNewPassword(value); setFormError('') }}
+              placeholder="Оставь пустым, если не меняешь"
+              helper="Оставь пустым, если пароль менять не нужно."
+              error={selfNewPassword ? getOptionalPasswordError(selfNewPassword) : ''}
+            />
+            <PasswordInput
+              label="Текущий пароль"
+              value={selfCurrentPassword}
+              onChange={(value) => { setSelfCurrentPassword(value); setFormError('') }}
+              placeholder="Подтверждение действия"
+              helper="Нужен для подтверждения изменения своих данных."
+              className="admin-field--full"
+            />
           </div>
-
           <div className="admin-modal__footer">
-            <button
-              type="button"
-              className="admin-ghost-btn"
-              onClick={() => setIsSelfSettingsOpen(false)}
-            >
-              Отмена
-            </button>
-
+            <button type="button" className="admin-ghost-btn" onClick={closeSelfSettingsModal}>Отмена</button>
             <button
               type="button"
               className="admin-primary-btn"
-              onClick={() => updateSelfSettingsMutation.mutate()}
-              disabled={
-                updateSelfSettingsMutation.isPending ||
-                !selfCurrentPassword.trim() ||
-                (selfNewPassword.trim().length > 0 && selfNewPassword.trim().length < 8)
-              }
+              onClick={handleUpdateSelfSettings}
+              disabled={updateSelfSettingsMutation.isPending}
             >
               {updateSelfSettingsMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
             </button>

@@ -564,7 +564,7 @@ export const VacanciesPage = () => {
 
                   <CustomSelect
                     selectKey="employmentType"
-                    label="Тип занятости"
+                    label="Формат работы"
                     placeholder="Любой тип"
                     value={employmentTypeId}
                     options={employmentTypesQuery.data || []}

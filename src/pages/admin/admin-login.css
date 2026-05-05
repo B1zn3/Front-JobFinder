@@ -75,15 +75,21 @@
   transition: var(--transition);
 }
 
+
 .admin-login-field input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(10, 38, 71, 0.08);
 }
-
 .admin-login-field input::placeholder {
   color: var(--text-muted);
 }
-
+.admin-login-password {
+  position: relative;
+  width: 100%;
+}
+.admin-login-password input {
+  padding-right: 56px;
+}
 .admin-login-alert {
   padding: 14px 16px;
   border-radius: 16px;
@@ -91,7 +97,40 @@
   font-weight: 600;
   line-height: 1.45;
 }
+.admin-login-password__toggle {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: var(--transition);
+}
 
+.admin-login-password__toggle:hover {
+  background: rgba(10, 38, 71, 0.06);
+}
+
+.admin-login-password__toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-login-password__toggle img {
+  width: 21px;
+  height: 21px;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
 .admin-login-alert--error {
   background: #fef2f2;
   color: #b91c1c;

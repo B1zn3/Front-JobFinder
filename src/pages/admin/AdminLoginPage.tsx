@@ -3,6 +3,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { http } from '../../shared/api/http'
 import { authSession, initializeSession } from '../../shared/auth/session'
+import hidePasswordIcon from '../../assets/скрыть_пароль.png'
+import showPasswordIcon from '../../assets/показать_пароль.png'
 import './admin-login.css'
 
 type FastApiValidationError = {
@@ -73,6 +75,7 @@ export const AdminLoginPage = () => {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -137,13 +140,31 @@ export const AdminLoginPage = () => {
 
           <label className="admin-login-field">
             <span>Пароль</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Введите пароль"
-              autoComplete="current-password"
-            />
+
+            <div className="admin-login-password">
+              <input
+                type={isPasswordVisible ? 'text' : 'password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Введите пароль"
+                autoComplete="current-password"
+              />
+
+              <button
+                type="button"
+                className="admin-login-password__toggle"
+                onClick={() => setIsPasswordVisible((value) => !value)}
+                disabled={loading}
+                aria-label={isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                title={isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+              >
+                <img
+                  src={isPasswordVisible ? hidePasswordIcon : showPasswordIcon}
+                  alt=""
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
           </label>
 
           {error ? <div className="admin-login-alert admin-login-alert--error">{error}</div> : null}
