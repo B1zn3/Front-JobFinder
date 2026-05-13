@@ -81,6 +81,31 @@ type ApplicationItem = {
   } | null
 }
 
+type FavoriteResumeInfo = {
+  id: number
+  profession_id?: number | null
+  profession_name?: string | null
+  title?: string | null
+}
+
+type FavoriteVacancyState = {
+  vacancy_id: number
+  is_favorite: boolean
+  favorite_id?: number | null
+  resume_id?: number | null
+  resume?: FavoriteResumeInfo | null
+}
+
+type FavoriteMutationPayload =
+  | {
+      action: 'add'
+      resumeId: number
+    }
+  | {
+      action: 'remove'
+      resumeId: number
+    }
+
 type ApplyPayload = {
   vacancy_id: number
   resume_id: number
@@ -187,6 +212,34 @@ const fetchMyResumes = async (): Promise<ResumeItem[]> => {
   })
 
   return normalizeArrayResponse<ResumeItem>(data)
+}
+
+const fetchFavoriteState = async (vacancyId: string): Promise<FavoriteVacancyState> => {
+  const { data } = await http.get(`/applicants/me/favorite-vacancies/${vacancyId}/state`)
+
+  return {
+    vacancy_id: Number(data?.vacancy_id ?? vacancyId),
+    is_favorite: Boolean(data?.is_favorite),
+    favorite_id: data?.favorite_id ?? null,
+    resume_id: data?.resume_id ?? null,
+    resume: data?.resume ?? null,
+  }
+}
+
+const addFavoriteVacancy = async (vacancyId: number, resumeId: number) => {
+  const { data } = await http.post(`/applicants/me/favorite-vacancies/${vacancyId}`, {
+    resume_id: resumeId,
+  })
+
+  return data
+}
+
+const removeFavoriteVacancy = async (vacancyId: number, resumeId: number) => {
+  await http.delete(`/applicants/me/favorite-vacancies/${vacancyId}`, {
+    params: {
+      resume_id: resumeId,
+    },
+  })
 }
 
 const createApplication = async (payload: ApplyPayload): Promise<ApplicationItem> => {
@@ -327,6 +380,13 @@ const translateApiMessage = (message: string, status?: number) => {
   }
 
   if (
+    lower.includes('favorite') ||
+    lower.includes('избран')
+  ) {
+    return 'Не удалось изменить избранное.'
+  }
+
+  if (
     lower.includes('resume not found') ||
     lower.includes('резюме не найден') ||
     lower.includes('нет резюме')
@@ -405,6 +465,23 @@ const getErrorMessage = (error: unknown, fallback = 'Не удалось вып�
   return fallback
 }
 
+const HeartIcon = ({ active }: { active: boolean }) => (
+  <svg
+    className="vacancy-detail-favorite-btn__icon"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"
+      fill={active ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
 export const VacancyDetailPage = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -412,10 +489,19 @@ export const VacancyDetailPage = () => {
 
   const [actionMessage, setActionMessage] = useState('')
   const [actionError, setActionError] = useState('')
+  const [favoriteMessage, setFavoriteMessage] = useState('')
+  const [favoriteModalError, setFavoriteModalError] = useState('')
+
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
+  const [isFavoriteModalOpen, setIsFavoriteModalOpen] = useState(false)
+
   const [selectedResumeId, setSelectedResumeId] = useState<number | null>(null)
+  const [selectedFavoriteResumeId, setSelectedFavoriteResumeId] = useState<number | null>(null)
+
   const [coverLetter, setCoverLetter] = useState('')
   const [resumePage, setResumePage] = useState(1)
+  const [favoriteResumePage, setFavoriteResumePage] = useState(1)
+
   const [localApplication, setLocalApplication] = useState<ApplicationItem | null>(null)
 
   const accessToken =
@@ -450,6 +536,14 @@ export const VacancyDetailPage = () => {
     refetchOnWindowFocus: false,
   })
 
+  const favoriteStateQuery = useQuery({
+    queryKey: ['favorite-vacancy-state', vacancyId],
+    queryFn: () => fetchFavoriteState(vacancyId as string),
+    enabled: Boolean(vacancyId) && isAuthenticated && isApplicant,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
   const companyQuery = useQuery({
     queryKey: ['vacancy-detail-company', vacancyQuery.data?.company_id],
     queryFn: () => fetchCompanyDetail(vacancyQuery.data?.company_id as number),
@@ -475,11 +569,115 @@ export const VacancyDetailPage = () => {
   })
 
   const myResumesQuery = useQuery({
-    queryKey: ['applicant-my-resumes', 'apply-modal'],
+    queryKey: ['applicant-my-resumes', 'vacancy-actions'],
     queryFn: fetchMyResumes,
-    enabled: isApplyModalOpen && isAuthenticated && isApplicant,
+    enabled: (isApplyModalOpen || isFavoriteModalOpen) && isAuthenticated && isApplicant,
     retry: false,
     refetchOnWindowFocus: false,
+  })
+
+  const resumes = useMemo(() => myResumesQuery.data || [], [myResumesQuery.data])
+
+  const favoriteMutation = useMutation({
+    mutationFn: async (payload: FavoriteMutationPayload) => {
+      if (!vacancyId) {
+        throw new Error('Некорректный id вакансии.')
+      }
+
+      const numericVacancyId = Number(vacancyId)
+
+      if (!Number.isFinite(numericVacancyId)) {
+        throw new Error('Некорректный id вакансии.')
+      }
+
+      if (payload.action === 'add') {
+        return addFavoriteVacancy(numericVacancyId, payload.resumeId)
+      }
+
+      await removeFavoriteVacancy(numericVacancyId, payload.resumeId)
+      return null
+    },
+
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({
+        queryKey: ['favorite-vacancy-state', vacancyId],
+      })
+
+      const previousFavoriteState = queryClient.getQueryData<FavoriteVacancyState>([
+        'favorite-vacancy-state',
+        vacancyId,
+      ])
+
+      const pickedResume = resumes.find((resume) => resume.id === payload.resumeId)
+
+      queryClient.setQueryData<FavoriteVacancyState>(['favorite-vacancy-state', vacancyId], {
+        vacancy_id: Number(vacancyId),
+        is_favorite: payload.action === 'add',
+        favorite_id: payload.action === 'add' ? previousFavoriteState?.favorite_id ?? null : null,
+        resume_id: payload.action === 'add' ? payload.resumeId : null,
+        resume:
+          payload.action === 'add' && pickedResume
+            ? {
+                id: pickedResume.id,
+                profession_id: pickedResume.profession_id ?? pickedResume.profession?.id ?? null,
+                profession_name: pickedResume.profession?.name ?? null,
+                title: getResumeTitle(pickedResume),
+              }
+            : null,
+      })
+
+      return { previousFavoriteState }
+    },
+
+    onSuccess: async (_, payload) => {
+      setActionError('')
+      setActionMessage('')
+      setFavoriteModalError('')
+
+      if (payload.action === 'add') {
+        setFavoriteMessage('Вакансия добавлена в избранное.')
+        setIsFavoriteModalOpen(false)
+        setSelectedFavoriteResumeId(null)
+        setFavoriteResumePage(1)
+      } else {
+        setFavoriteMessage('Вакансия удалена из избранного.')
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: ['applicant-favorite-vacancies'],
+      })
+    },
+
+    onError: (error, payload, context) => {
+      if (context?.previousFavoriteState) {
+        queryClient.setQueryData(
+          ['favorite-vacancy-state', vacancyId],
+          context.previousFavoriteState,
+        )
+      }
+
+      const message = getErrorMessage(
+        error,
+        payload.action === 'add'
+          ? 'Не удалось добавить вакансию в избранное.'
+          : 'Не удалось удалить вакансию из избранного.',
+      )
+
+      setFavoriteMessage('')
+      setActionMessage('')
+
+      if (payload.action === 'add') {
+        setFavoriteModalError(message)
+      } else {
+        setActionError(message)
+      }
+    },
+
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['favorite-vacancy-state', vacancyId],
+      })
+    },
   })
 
   const applyMutation = useMutation({
@@ -560,8 +758,6 @@ export const VacancyDetailPage = () => {
   const hasEffectiveApplication = Boolean(effectiveApplication)
   const applicationUi = getApplicationUi(effectiveApplication?.status, hasEffectiveApplication)
 
-  const resumes = useMemo(() => myResumesQuery.data || [], [myResumesQuery.data])
-
   const resumeTotalPages = Math.max(Math.ceil(resumes.length / RESUMES_PER_PAGE), 1)
 
   const paginatedResumes = useMemo(() => {
@@ -578,8 +774,33 @@ export const VacancyDetailPage = () => {
     return resumes.find((item) => item.id === selectedResumeId) || null
   }, [resumes, selectedResumeId])
 
+  const favoriteResumeTotalPages = Math.max(Math.ceil(resumes.length / RESUMES_PER_PAGE), 1)
+
+  const paginatedFavoriteResumes = useMemo(() => {
+    const start = (favoriteResumePage - 1) * RESUMES_PER_PAGE
+    return resumes.slice(start, start + RESUMES_PER_PAGE)
+  }, [resumes, favoriteResumePage])
+
+  const visibleFavoriteResumeStart =
+    resumes.length === 0 ? 0 : (favoriteResumePage - 1) * RESUMES_PER_PAGE + 1
+
+  const visibleFavoriteResumeEnd = Math.min(favoriteResumePage * RESUMES_PER_PAGE, resumes.length)
+
+  const selectedFavoriteResume = useMemo(() => {
+    if (!selectedFavoriteResumeId) return null
+
+    return resumes.find((item) => item.id === selectedFavoriteResumeId) || null
+  }, [resumes, selectedFavoriteResumeId])
+
   const vacancy = vacancyQuery.data
   const company = companyQuery.data
+
+  const isFavorite = Boolean(favoriteStateQuery.data?.is_favorite)
+  const isFavoriteChecking =
+    isAuthenticated &&
+    isApplicant &&
+    !favoriteStateQuery.data &&
+    (favoriteStateQuery.isLoading || favoriteStateQuery.isFetching)
 
   const companyId = vacancy?.company_id ?? company?.id ?? null
   const companyHref = companyId ? `/companies/${companyId}` : ''
@@ -621,11 +842,26 @@ export const VacancyDetailPage = () => {
     setLocalApplication(null)
     setActionMessage('')
     setActionError('')
+    setFavoriteMessage('')
+    setFavoriteModalError('')
     setIsApplyModalOpen(false)
+    setIsFavoriteModalOpen(false)
     setSelectedResumeId(null)
+    setSelectedFavoriteResumeId(null)
     setCoverLetter('')
     setResumePage(1)
+    setFavoriteResumePage(1)
   }, [vacancyId])
+
+  useEffect(() => {
+    if (!favoriteMessage) return
+
+    const timeout = window.setTimeout(() => {
+      setFavoriteMessage('')
+    }, 2500)
+
+    return () => window.clearTimeout(timeout)
+  }, [favoriteMessage])
 
   useEffect(() => {
     if (!isApplyModalOpen) return
@@ -634,16 +870,34 @@ export const VacancyDetailPage = () => {
   }, [isApplyModalOpen])
 
   useEffect(() => {
+    if (!isFavoriteModalOpen) return
+
+    setFavoriteResumePage(1)
+  }, [isFavoriteModalOpen])
+
+  useEffect(() => {
     if (resumePage <= resumeTotalPages) return
 
     setResumePage(resumeTotalPages)
   }, [resumePage, resumeTotalPages])
 
   useEffect(() => {
+    if (favoriteResumePage <= favoriteResumeTotalPages) return
+
+    setFavoriteResumePage(favoriteResumeTotalPages)
+  }, [favoriteResumePage, favoriteResumeTotalPages])
+
+  useEffect(() => {
     if (!isApplyModalOpen || selectedResumeId || resumes.length === 0) return
 
     setSelectedResumeId(resumes[0].id)
   }, [isApplyModalOpen, resumes, selectedResumeId])
+
+  useEffect(() => {
+    if (!isFavoriteModalOpen || selectedFavoriteResumeId || resumes.length === 0) return
+
+    setSelectedFavoriteResumeId(resumes[0].id)
+  }, [isFavoriteModalOpen, resumes, selectedFavoriteResumeId])
 
   useEffect(() => {
     if (!isApplyModalOpen) return
@@ -668,6 +922,99 @@ export const VacancyDetailPage = () => {
       document.removeEventListener('keydown', closeByEscape)
     }
   }, [isApplyModalOpen, applyMutation.isPending])
+
+  useEffect(() => {
+    if (!isFavoriteModalOpen) return
+
+    const previousOverflow = document.body.style.overflow
+
+    const closeByEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || favoriteMutation.isPending) return
+
+      setIsFavoriteModalOpen(false)
+      setSelectedFavoriteResumeId(null)
+      setFavoriteModalError('')
+      setFavoriteResumePage(1)
+    }
+
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', closeByEscape)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', closeByEscape)
+    }
+  }, [isFavoriteModalOpen, favoriteMutation.isPending])
+
+  const handleToggleFavorite = async () => {
+    if (!vacancyId || favoriteMutation.isPending || isFavoriteChecking) return
+
+    setActionMessage('')
+    setActionError('')
+    setFavoriteMessage('')
+    setFavoriteModalError('')
+
+    if (!isAuthenticated) {
+      const redirectPath = `/vacancies/${vacancyId}`
+
+      navigate(`/login?redirect=${encodeURIComponent(redirectPath)}`, {
+        state: { from: redirectPath },
+      })
+
+      return
+    }
+
+    if (!isApplicant) {
+      setActionError('Добавлять вакансии в избранное может только соискатель.')
+      return
+    }
+
+    if (isFavorite) {
+      const resumeId = favoriteStateQuery.data?.resume_id
+
+      if (!resumeId) {
+        setActionError('Не удалось определить резюме, к которому привязана избранная вакансия.')
+        return
+      }
+
+      await favoriteMutation.mutateAsync({
+        action: 'remove',
+        resumeId,
+      })
+
+      return
+    }
+
+    setIsFavoriteModalOpen(true)
+  }
+
+  const handleCloseFavoriteModal = () => {
+    if (favoriteMutation.isPending) return
+
+    setIsFavoriteModalOpen(false)
+    setSelectedFavoriteResumeId(null)
+    setFavoriteModalError('')
+    setFavoriteResumePage(1)
+  }
+
+  const handleSubmitFavorite = async () => {
+    if (!vacancyId) return
+
+    setFavoriteModalError('')
+    setActionError('')
+    setActionMessage('')
+    setFavoriteMessage('')
+
+    if (!selectedFavoriteResumeId) {
+      setFavoriteModalError('Выберите резюме, к которому относится избранная вакансия.')
+      return
+    }
+
+    await favoriteMutation.mutateAsync({
+      action: 'add',
+      resumeId: selectedFavoriteResumeId,
+    })
+  }
 
   const handleOpenApplyModal = async () => {
     if (!vacancyId) return
@@ -778,6 +1125,12 @@ export const VacancyDetailPage = () => {
     hasEffectiveApplication ? applicationUi.className : 'is-cta'
   }`
 
+  const favoriteButtonText = favoriteMutation.isPending
+    ? 'Сохраняем...'
+    : isFavorite
+      ? 'В избранном'
+      : 'В избранное'
+
   return (
     <div className="vacancy-detail-page">
       <Header />
@@ -825,14 +1178,29 @@ export const VacancyDetailPage = () => {
               </div>
 
               <div className="vacancy-detail-hero__actions">
-                <button
-                  type="button"
-                  className={applyButtonClassName}
-                  onClick={handleOpenApplyModal}
-                  disabled={isApplyDisabled}
-                >
-                  {applyButtonText}
-                </button>
+                <div className="vacancy-detail-hero__action-row">
+                  <button
+                    type="button"
+                    className={applyButtonClassName}
+                    onClick={handleOpenApplyModal}
+                    disabled={isApplyDisabled}
+                  >
+                    {applyButtonText}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`vacancy-detail-favorite-btn ${isFavorite ? 'is-active' : ''}`}
+                    onClick={handleToggleFavorite}
+                    disabled={favoriteMutation.isPending || isFavoriteChecking}
+                    aria-pressed={isFavorite}
+                    aria-label={isFavorite ? 'Удалить из избранного' : 'Добавить в избранное'}
+                    title={isFavorite ? 'Удалить из избранного' : 'Добавить в избранное'}
+                  >
+                    <HeartIcon active={isFavorite} />
+                    <span>{favoriteButtonText}</span>
+                  </button>
+                </div>
 
                 {hasEffectiveApplication && applicationUi.note ? (
                   <p className="vacancy-detail-status-note">{applicationUi.note}</p>
@@ -844,7 +1212,13 @@ export const VacancyDetailPage = () => {
                   </p>
                 ) : null}
 
-                {actionError && !isApplyModalOpen ? (
+                {favoriteMessage ? (
+                  <p className="vacancy-detail-status-note vacancy-detail-status-note--favorite">
+                    {favoriteMessage}
+                  </p>
+                ) : null}
+
+                {actionError && !isApplyModalOpen && !isFavoriteModalOpen ? (
                   <p className="vacancy-detail-status-note vacancy-detail-status-note--error">
                     {actionError}
                   </p>
@@ -1026,6 +1400,160 @@ export const VacancyDetailPage = () => {
           </div>
         </section>
       </main>
+
+      {isFavoriteModalOpen ? (
+        <div className="apply-modal-overlay" onMouseDown={handleCloseFavoriteModal}>
+          <section
+            className="apply-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="favorite-modal-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="apply-modal__header">
+              <div>
+                <p className="apply-modal__eyebrow">Добавление в избранное</p>
+                <h2 id="favorite-modal-title">{vacancy.title}</h2>
+                <p>Выберите резюме, к которому относится эта вакансия.</p>
+              </div>
+
+              <button
+                type="button"
+                className="apply-modal__close"
+                onClick={handleCloseFavoriteModal}
+                disabled={favoriteMutation.isPending}
+                aria-label="Закрыть"
+              >
+                ×
+              </button>
+            </div>
+
+            {myResumesQuery.isLoading ? (
+              <div className="apply-modal__state">Загружаем ваши резюме...</div>
+            ) : null}
+
+            {myResumesQuery.isError ? (
+              <div className="apply-modal__error">Не удалось загрузить резюме.</div>
+            ) : null}
+
+            {!myResumesQuery.isLoading && !myResumesQuery.isError && resumes.length === 0 ? (
+              <div className="apply-modal__empty">
+                <h3>У вас пока нет резюме</h3>
+                <p>Без резюме нельзя добавить вакансию в избранное.</p>
+
+                <button
+                  type="button"
+                  className="apply-modal__primary"
+                  onClick={() => navigate('/applicant/resume/create')}
+                >
+                  Создать резюме
+                </button>
+              </div>
+            ) : null}
+
+            {resumes.length > 0 ? (
+              <>
+                <div className="apply-modal__section">
+                  <div className="apply-modal__section-head apply-modal__section-head--resumes">
+                    <div>
+                      <h3>Выберите резюме</h3>
+                      <p>
+                        Показано {visibleFavoriteResumeStart}–{visibleFavoriteResumeEnd} из{' '}
+                        {resumes.length}
+                      </p>
+                    </div>
+
+                    {favoriteResumeTotalPages > 1 ? (
+                      <div className="apply-resume-pagination">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFavoriteResumePage((page) => Math.max(page - 1, 1))
+                          }
+                          disabled={favoriteResumePage === 1}
+                          aria-label="Предыдущая страница резюме"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M15 6L9 12L15 18" />
+                          </svg>
+                        </button>
+
+                        <span>
+                          {favoriteResumePage}/{favoriteResumeTotalPages}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFavoriteResumePage((page) =>
+                              Math.min(page + 1, favoriteResumeTotalPages),
+                            )
+                          }
+                          disabled={favoriteResumePage === favoriteResumeTotalPages}
+                          aria-label="Следующая страница резюме"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M9 6L15 12L9 18" />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="apply-resume-list">
+                    {paginatedFavoriteResumes.map((resume) => (
+                      <button
+                        key={resume.id}
+                        type="button"
+                        className={`apply-resume-card ${
+                          selectedFavoriteResumeId === resume.id ? 'is-selected' : ''
+                        }`}
+                        onClick={() => setSelectedFavoriteResumeId(resume.id)}
+                      >
+                        <span className="apply-resume-card__title">{getResumeTitle(resume)}</span>
+
+                        {resume.updated_at || resume.created_at ? (
+                          <span className="apply-resume-card__meta">
+                            Обновлено: {formatDate(resume.updated_at || resume.created_at)}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {favoriteModalError ? (
+                  <div className="apply-modal__error">{favoriteModalError}</div>
+                ) : null}
+
+                <div className="apply-modal__footer">
+                  <button
+                    type="button"
+                    className="apply-modal__secondary"
+                    onClick={handleCloseFavoriteModal}
+                    disabled={favoriteMutation.isPending}
+                  >
+                    Отмена
+                  </button>
+
+                  <button
+                    type="button"
+                    className="apply-modal__primary"
+                    onClick={handleSubmitFavorite}
+                    disabled={favoriteMutation.isPending || !selectedFavoriteResumeId}
+                  >
+                    {favoriteMutation.isPending
+                      ? 'Добавляем...'
+                      : selectedFavoriteResume
+                        ? `Добавить к «${getResumeTitle(selectedFavoriteResume)}»`
+                        : 'Добавить в избранное'}
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
 
       {isApplyModalOpen ? (
         <div className="apply-modal-overlay" onMouseDown={handleCloseApplyModal}>

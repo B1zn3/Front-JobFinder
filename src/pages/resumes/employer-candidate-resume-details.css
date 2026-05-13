@@ -1,0 +1,465 @@
+:root {
+  --candidate-resume-bg: var(--bg-secondary, #f4f7fb);
+  --candidate-resume-card: var(--bg-card, #ffffff);
+  --candidate-resume-text: var(--text, #10213a);
+  --candidate-resume-muted: var(--text-muted, #627792);
+  --candidate-resume-primary: var(--primary, #0a2f5b);
+  --candidate-resume-primary-light: var(--primary-light, #164b86);
+  --candidate-resume-border: #d7deea;
+  --candidate-resume-border-soft: #e6edf5;
+  --candidate-resume-subcard: #f9fbfe;
+  --candidate-resume-error: #b42318;
+  --candidate-resume-error-bg: #fef3f2;
+  --candidate-resume-shadow: 0 18px 42px rgba(15, 23, 42, 0.06);
+  --candidate-resume-shadow-soft: 0 10px 24px rgba(10, 38, 71, 0.12);
+}
+
+.candidate-resume-view-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--candidate-resume-bg);
+}
+
+.candidate-resume-view-page * {
+  box-sizing: border-box;
+}
+
+.candidate-resume-view-page__main {
+  flex: 1;
+  padding: 40px 0 72px;
+}
+
+.candidate-resume-view-container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.candidate-resume-view-card {
+  margin-bottom: 28px;
+  padding: 30px;
+  border: 1px solid var(--candidate-resume-border);
+  border-radius: 30px;
+  background: var(--candidate-resume-card);
+  box-shadow: var(--candidate-resume-shadow);
+}
+
+.candidate-resume-hero {
+  overflow: hidden;
+}
+
+.candidate-resume-hero__topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.candidate-resume-hero__body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+}
+
+.candidate-resume-hero__avatar {
+  width: 112px;
+  height: 112px;
+  border-radius: 28px;
+  display: block;
+  object-fit: cover;
+  border: 1px solid var(--candidate-resume-border);
+  background: var(--candidate-resume-card);
+}
+
+.candidate-resume-hero__avatar--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: linear-gradient(
+    135deg,
+    var(--candidate-resume-primary) 0%,
+    var(--candidate-resume-primary-light) 100%
+  );
+  color: #fff;
+  font-size: 34px;
+  font-weight: 900;
+  box-shadow: 0 14px 28px -14px var(--candidate-resume-primary);
+}
+
+.candidate-resume-label {
+  margin-bottom: 12px;
+  color: var(--candidate-resume-muted);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.candidate-resume-hero__content h1 {
+  margin: 0 0 10px;
+  color: var(--candidate-resume-text);
+  font-size: 42px;
+  line-height: 1.08;
+  font-weight: 900;
+  word-break: break-word;
+}
+
+.candidate-resume-hero__content p {
+  margin: 0 0 12px;
+  color: var(--candidate-resume-primary);
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 900;
+  word-break: break-word;
+}
+
+.candidate-resume-hero__meta {
+  color: var(--candidate-resume-muted);
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 700;
+}
+
+.candidate-resume-btn {
+  min-height: 60px;
+  padding: 0 22px;
+  border-radius: 18px;
+  border: 1px solid transparent;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.candidate-resume-btn:hover {
+  transform: translateY(-1px);
+}
+
+.candidate-resume-btn--outline {
+  background: var(--candidate-resume-card);
+  border-color: var(--candidate-resume-border);
+  color: var(--candidate-resume-text);
+}
+
+.candidate-resume-btn--outline:hover {
+  border-color: var(--candidate-resume-primary);
+  color: var(--candidate-resume-primary);
+}
+
+.candidate-resume-btn--ghost {
+  background: #f8fbff;
+  border: 1px dashed #c5d2e3;
+  color: #57708f;
+}
+
+.candidate-resume-btn--ghost:hover {
+  border-color: var(--candidate-resume-primary);
+  color: var(--candidate-resume-primary);
+}
+
+.candidate-resume-section__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 26px;
+}
+
+.candidate-resume-section__head h2 {
+  margin: 0 0 10px;
+  color: var(--candidate-resume-text);
+  font-size: 32px;
+  line-height: 1.1;
+  font-weight: 900;
+}
+
+.candidate-resume-section__head p {
+  margin: 0;
+  color: var(--candidate-resume-muted);
+  font-size: 17px;
+  line-height: 1.55;
+  font-weight: 600;
+}
+
+.candidate-resume-count-badge {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--candidate-resume-border);
+  border-radius: 999px;
+  background: var(--candidate-resume-subcard);
+  color: var(--candidate-resume-muted);
+  font-size: 14px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.candidate-resume-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.candidate-resume-info-item {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--candidate-resume-border-soft);
+  border-radius: 22px;
+  background: var(--candidate-resume-subcard);
+}
+
+.candidate-resume-info-item span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--candidate-resume-muted);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.candidate-resume-info-item strong {
+  display: block;
+  color: var(--candidate-resume-text);
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 900;
+  word-break: break-word;
+}
+
+.candidate-resume-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.candidate-resume-chip {
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(10, 38, 71, 0.14);
+  background: rgba(10, 38, 71, 0.06);
+  color: var(--candidate-resume-primary);
+  font-size: 15px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+}
+
+.candidate-resume-timeline {
+  display: grid;
+  gap: 18px;
+}
+
+.candidate-resume-timeline-card {
+  padding: 24px;
+  border: 1px solid var(--candidate-resume-border);
+  border-radius: 26px;
+  background: var(--candidate-resume-subcard);
+}
+
+.candidate-resume-timeline-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.candidate-resume-timeline-card__head h3 {
+  margin: 0 0 8px;
+  color: var(--candidate-resume-text);
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 900;
+  word-break: break-word;
+}
+
+.candidate-resume-timeline-card__head p {
+  margin: 0;
+  color: var(--candidate-resume-primary);
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 900;
+  word-break: break-word;
+}
+
+.candidate-resume-timeline-card__head span {
+  flex-shrink: 0;
+  max-width: 260px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--candidate-resume-card);
+  border: 1px solid var(--candidate-resume-border-soft);
+  color: var(--candidate-resume-muted);
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 800;
+  text-align: right;
+}
+
+.candidate-resume-description {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--candidate-resume-border-soft);
+  color: var(--candidate-resume-text);
+  font-size: 16px;
+  line-height: 1.7;
+  font-weight: 500;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.candidate-resume-muted {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--candidate-resume-border-soft);
+  color: var(--candidate-resume-muted);
+  font-size: 15px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.candidate-resume-empty,
+.candidate-resume-empty-inline {
+  padding: 18px 20px;
+  border: 1px solid var(--candidate-resume-border);
+  border-radius: 18px;
+  background: var(--candidate-resume-card);
+  color: var(--candidate-resume-muted);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.candidate-resume-empty--error {
+  border-color: rgba(180, 35, 24, 0.18);
+  background: var(--candidate-resume-error-bg);
+  color: var(--candidate-resume-error);
+}
+
+@media (max-width: 992px) {
+  .candidate-resume-view-container {
+    max-width: 860px;
+  }
+
+  .candidate-resume-section__head {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-resume-info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .candidate-resume-view-page__main {
+    padding: 24px 0 48px;
+  }
+
+  .candidate-resume-view-container {
+    padding: 0 16px;
+  }
+
+  .candidate-resume-view-card {
+    padding: 22px 18px;
+    border-radius: 24px;
+  }
+
+  .candidate-resume-hero__topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .candidate-resume-btn {
+    width: 100%;
+  }
+
+  .candidate-resume-hero__body {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-resume-hero__avatar {
+    width: 92px;
+    height: 92px;
+    border-radius: 24px;
+  }
+
+  .candidate-resume-hero__content h1 {
+    font-size: 34px;
+  }
+
+  .candidate-resume-hero__content p {
+    font-size: 20px;
+  }
+
+  .candidate-resume-section__head h2 {
+    font-size: 28px;
+  }
+
+  .candidate-resume-timeline-card {
+    padding: 20px 18px;
+    border-radius: 22px;
+  }
+
+  .candidate-resume-timeline-card__head {
+    flex-direction: column;
+  }
+
+  .candidate-resume-timeline-card__head span {
+    max-width: none;
+    width: 100%;
+    text-align: left;
+  }
+}
+
+@media (max-width: 520px) {
+  .candidate-resume-view-container {
+    padding: 0 12px;
+  }
+
+  .candidate-resume-view-card {
+    padding: 20px 14px;
+    border-radius: 22px;
+  }
+
+  .candidate-resume-hero__content h1 {
+    font-size: 28px;
+  }
+
+  .candidate-resume-hero__content p {
+    font-size: 18px;
+  }
+
+  .candidate-resume-section__head h2 {
+    font-size: 24px;
+  }
+
+  .candidate-resume-info-item {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .candidate-resume-chip {
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+
+  .candidate-resume-timeline-card {
+    padding: 18px 14px;
+    border-radius: 20px;
+  }
+
+  .candidate-resume-timeline-card__head h3 {
+    font-size: 20px;
+  }
+}

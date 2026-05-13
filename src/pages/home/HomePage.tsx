@@ -122,7 +122,7 @@ export const HomePage = () => {
       const hasSession = await initializeSession()
       if (!hasSession) return
       const role = authSession.getRole()
-      if (role === 'company') navigate('/employer', { replace: true })
+      if (role === 'company') navigate('/employer/vacancies', { replace: true })
       else if (role === 'admin') navigate('/admin', { replace: true })
       else navigate('/applicant', { replace: true })
     }

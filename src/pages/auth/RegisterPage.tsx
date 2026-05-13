@@ -340,7 +340,7 @@ export const RegisterPage = () => {
 
   const getSuccessRedirect = (successRole: RoleUi) => {
     if (locationState?.from) return locationState.from
-    return successRole === 'company' ? '/employer' : '/applicant'
+    return successRole === 'company' ? 'employer/vacancies' : '/applicant'
   }
 
   const clearFormMessages = () => {

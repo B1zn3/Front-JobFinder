@@ -161,7 +161,7 @@ export const Header = () => {
     <header className="header">
       <div className="container header__inner">
         <div className="header__topline">
-          <NavLink to="/" className="header__logo" onClick={closeMenu}>
+          <NavLink to="/employer/vacancies" className="header__logo" onClick={closeMenu}>
             JobFinder
           </NavLink>
 
@@ -243,6 +243,7 @@ export const Header = () => {
                     >
                       Мои вакансии
                     </NavLink>
+
                     <NavLink
                       to="/employer/candidates"
                       className={getNavLinkClass}
@@ -251,18 +252,11 @@ export const Header = () => {
                       Кандидаты
                     </NavLink>
                     <NavLink
-                      to="/employer/chat"
+                      to="/employer/applications"
                       className={getNavLinkClass}
                       onClick={closeMenu}
                     >
-                      Чат
-                    </NavLink>
-                    <NavLink
-                      to="/employer/company-profile"
-                      className={getNavLinkClass}
-                      onClick={closeMenu}
-                    >
-                      Профиль
+                      Отклики
                     </NavLink>
                   </>
                 )}
@@ -347,14 +341,36 @@ export const Header = () => {
                 )}
 
                 {role === 'company' && (
-                  <div className="header__account-box">
-                    <span className="header__user">Работодатель</span>
+                  <div className="header__employer-tools">
+                    <NavLink
+                      to="/employer/chat"
+                      className="header__tool-btn header__tool-btn--company"
+                      aria-label="Чат"
+                      title="Чат"
+                      onClick={closeMenu}
+                    >
+                      <ChatIcon />
+                      <span className="header__tool-btn-text">Чат</span>
+                    </NavLink>
+
+                    <NavLink
+                      to="/employer/company-profile"
+                      className="header__profile-chip header__profile-chip--company"
+                      onClick={closeMenu}
+                    >
+                      <span className="header__profile-chip-avatar">
+                        <UserIcon />
+                      </span>
+                      <span className="header__profile-chip-text">Профиль</span>
+                    </NavLink>
+
                     <button
                       onClick={handleLogout}
-                      className="btn btn--text"
+                      className="header__logout-btn header__logout-btn--company"
                       type="button"
                     >
-                      Выйти
+                      <LogoutIcon />
+                      <span className="header__logout-text">Выйти</span>
                     </button>
                   </div>
                 )}

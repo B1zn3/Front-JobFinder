@@ -5,7 +5,6 @@ import { RegisterPage } from '../pages/auth/RegisterPage'
 import { VacancyDetailPage } from '../pages/detailpages/VacancyDetailPage'
 import { CompanyDetailPage } from '../pages/detailpages/CompanyDetailPage'
 import { ApplicantPage } from '../pages/applicant/ApplicantrPage'
-import { EmployerPage } from '../pages/employer/EmployerPage'
 import { AdminPage } from '../pages/admin/AdminPage'
 import { AdminLoginPage } from '../pages/admin/AdminLoginPage'
 import { RequireAuth } from '../shared/auth/RequireAuth'
@@ -15,7 +14,14 @@ import { CreateResumePage } from '../pages/applicant/CreateResumePage'
 import { ResumeDetailsPage } from '../pages/applicant/ResumeDetailsPage'
 import { MyApplicationsPage } from '../pages/applications/MyApplicationsPage'
 import { ApplicantProfilePage } from '../pages/applicant/ApplicantProfilePage'
-
+import { EmployerVacanciesPage } from '../pages/employer/EmployerVacanciesPage'
+import { CreateVacancyPage } from '../pages/employer/CreateVacancyPage'
+import { EmployerVacancyDetailsPage } from '../pages/employer/EmployerVacancyDetailsPage'
+import { EmployerCompanyProfilePage } from '../pages/employer/EmployerCompanyProfilePage'
+import { EmployerCandidatesPage } from '../pages/resumes/EmployerCandidatesPage'
+import { EmployerCandidateResumeDetailsPage } from '../pages/resumes/EmployerCandidateResumeDetailsPage'
+import { ApplicantFavoritesPage } from '../pages/applicant/ApplicantFavoritesPage'
+import { CompanyApplicationsPage } from '../pages/employer/CompanyApplicationsPage.tsx'
 
 const router = createBrowserRouter([
   {
@@ -23,32 +29,48 @@ const router = createBrowserRouter([
     element: <Outlet />,
     children: [
       { index: true, element: <HomePage /> },
-      { path: '/login', element: <LoginPage /> },
-      { path: '/register', element: <RegisterPage /> },
-      { path: '/admin/login', element: <AdminLoginPage /> },
 
-      { path: '/vacancies/:vacancyId', element: <VacancyDetailPage /> },
-      { path: '/vacancies', element: <VacanciesPage /> },
-      { path: '/companies/:companyId', element: <CompanyDetailPage /> },
-      { path: '/companies', element: <CompaniesPage /> },
+      { path: 'login', element: <LoginPage /> },
+      { path: 'register', element: <RegisterPage /> },
+      { path: 'admin/login', element: <AdminLoginPage /> },
 
-      { path: '/applicant/resume/create', element: <CreateResumePage /> },
-      { path: '/applicant/resume/:resumeId', element: <ResumeDetailsPage /> },
-      { path: '/applicant/resume/:resumeId/edit', element: <ResumeDetailsPage /> },
-      { path: '/responses', element: <MyApplicationsPage /> },
-      { path: '/applicant/profile', element: <ApplicantProfilePage /> },
+      { path: 'vacancies', element: <VacanciesPage /> },
+      { path: 'vacancies/:vacancyId', element: <VacancyDetailPage /> },
+
+      { path: 'companies', element: <CompaniesPage /> },
+      { path: 'companies/:companyId', element: <CompanyDetailPage /> },
 
       {
         element: <RequireAuth allowedRoles={['applicant']} />,
-        children: [{ path: '/applicant', element: <ApplicantPage /> }],
+        children: [
+          { path: 'applicant', element: <ApplicantPage /> },
+          { path: 'applicant/resume/create', element: <CreateResumePage /> },
+          { path: 'applicant/resume/:resumeId', element: <ResumeDetailsPage /> },
+          { path: 'applicant/resume/:resumeId/edit', element: <ResumeDetailsPage /> },
+          { path: 'responses', element: <MyApplicationsPage /> },
+          { path: 'applicant/profile', element: <ApplicantProfilePage /> },
+          { path: 'applicant/favorites', element: <ApplicantFavoritesPage />,}
+        ],
       },
+
       {
         element: <RequireAuth allowedRoles={['company']} />,
-        children: [{ path: '/employer', element: <EmployerPage /> }],
+        children: [
+          { path: 'employer/vacancies', element: <EmployerVacanciesPage /> },
+          { path: 'employer/vacancies/create', element: <CreateVacancyPage /> },
+          { path: 'employer/vacancies/:vacancyId', element: <EmployerVacancyDetailsPage /> },
+          { path: '/employer/company-profile', element: <EmployerCompanyProfilePage /> },
+          { path: '/employer/candidates', element: <EmployerCandidatesPage /> },
+          { path: '/employer/candidates/resumes/:resumeId', element: <EmployerCandidateResumeDetailsPage /> },
+          { path: '/employer/applications', element: <CompanyApplicationsPage /> },
+        ],
       },
+
       {
         element: <RequireAuth allowedRoles={['admin']} />,
-        children: [{ path: '/admin', element: <AdminPage /> }],
+        children: [
+          { path: 'admin', element: <AdminPage /> },
+        ],
       },
     ],
   },

@@ -340,7 +340,7 @@ export const LoginPage = () => {
 
   const getSuccessRedirect = () => {
     if (locationState?.from) return locationState.from
-    return role === 'company' ? '/employer' : '/applicant'
+    return role === 'company' ? '/employer/vacancies' : '/applicant'
   }
 
   const clearLoginState = () => {
