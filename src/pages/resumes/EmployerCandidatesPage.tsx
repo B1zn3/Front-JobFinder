@@ -17,6 +17,13 @@ import './employer-candidates.css'
 type CatalogItem = {
   id: number
   name: string
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+  full_name?: string | null
 }
 
 type StaticFilterItem = {
@@ -84,6 +91,18 @@ type StaticSelectProps = {
   onChange: (value: string) => void
 }
 
+type MultiSelectProps = {
+  label: string
+  placeholder: string
+  selectKey: string
+  values: number[]
+  options: CatalogItem[]
+  isLoading?: boolean
+  openSelect: string | null
+  setOpenSelect: Dispatch<SetStateAction<string | null>>
+  onChange: (values: number[]) => void
+}
+
 const PAGE_SIZE = 12
 
 const educationFilterOptions: StaticFilterItem[] = [
@@ -98,6 +117,70 @@ const normalizeNumberParam = (value: string | null) => {
   const parsed = Number(value)
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+const normalizeNumberListParam = (value: string | null) => {
+  if (!value) return []
+
+  return Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((item) => Number(item.trim()))
+        .filter((item) => Number.isInteger(item) && item > 0),
+    ),
+  )
+}
+
+const getCatalogLabel = (item?: CatalogItem | null) => {
+  if (!item) return ''
+
+  return item.full_name || item.name
+}
+
+const getCityLabel = (city?: CatalogItem | null) => {
+  if (!city) return ''
+
+  if (city.full_name) return city.full_name
+
+  const title = [city.settlement_type_name, city.name].filter(Boolean).join(' ').trim()
+
+  return [title || city.name, city.district_name, city.region_name]
+    .filter(Boolean)
+    .join(', ')
+}
+
+const getRegionOptionsFromCities = (cities: CatalogItem[]) => {
+  const byId = new Map<number, CatalogItem>()
+
+  cities.forEach((city) => {
+    if (!city.region_id || !city.region_name) return
+
+    byId.set(city.region_id, {
+      id: city.region_id,
+      name: city.region_name,
+    })
+  })
+
+  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+}
+
+const getDistrictOptionsFromCities = (cities: CatalogItem[], regionId?: number) => {
+  const byId = new Map<number, CatalogItem>()
+
+  cities.forEach((city) => {
+    if (!city.district_id || !city.district_name) return
+    if (regionId !== undefined && city.region_id !== regionId) return
+
+    byId.set(city.district_id, {
+      id: city.district_id,
+      name: city.region_name ? `${city.district_name}, ${city.region_name}` : city.district_name,
+      region_id: city.region_id,
+      region_name: city.region_name,
+    })
+  })
+
+  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
 }
 
 const normalizePositivePage = (value: string | null) => {
@@ -245,7 +328,7 @@ const fetchCandidateResumes = async (
 
 const fetchCatalog = async (name: string): Promise<CatalogItem[]> => {
   const { data } = await http.get(`/public/catalogs/${name}`, {
-    params: { skip: 0, limit: 500 },
+    params: { skip: 0, limit: name === 'cities' || name === 'skills' ? 1000 : 500 },
   })
 
   return Array.isArray(data) ? data : []
@@ -318,7 +401,7 @@ const CandidateSelect = ({
         }}
         aria-expanded={isOpen}
       >
-        <span>{selected?.name || placeholder}</span>
+        <span>{getCatalogLabel(selected) || placeholder}</span>
 
         <svg className="candidate-select__icon" viewBox="0 0 24 24" aria-hidden="true">
           <path
@@ -364,7 +447,7 @@ const CandidateSelect = ({
                     setOpenSelect(null)
                   }}
                 >
-                  {item.name}
+                  {getCatalogLabel(item)}
                 </button>
               ))
             : null}
@@ -439,6 +522,129 @@ const CandidateStaticSelect = ({
               {item.name}
             </button>
           ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+
+const CandidateMultiSelect = ({
+  label,
+  placeholder,
+  selectKey,
+  values,
+  options,
+  isLoading,
+  openSelect,
+  setOpenSelect,
+  onChange,
+}: MultiSelectProps) => {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const isOpen = openSelect === selectKey
+  const selectedOptions = options.filter((item) => values.includes(item.id))
+  const selectedIds = new Set(values)
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) {
+        setOpenSelect((prev) => (prev === selectKey ? null : prev))
+      }
+    }
+
+    document.addEventListener('mousedown', handleDocumentClick)
+
+    return () => document.removeEventListener('mousedown', handleDocumentClick)
+  }, [selectKey, setOpenSelect])
+
+  const toggleValue = (id: number) => {
+    const nextValues = selectedIds.has(id)
+      ? values.filter((item) => item !== id)
+      : [...values, id]
+
+    onChange(nextValues)
+  }
+
+  return (
+    <div ref={ref} className={`candidate-select candidate-select--multi ${isOpen ? 'is-open' : ''}`}>
+      <span className="candidate-filter-label">{label}</span>
+
+      <button
+        type="button"
+        className={`candidate-select__trigger ${isOpen ? 'is-open' : ''}`}
+        onClick={() => setOpenSelect((prev) => (prev === selectKey ? null : selectKey))}
+        aria-expanded={isOpen}
+      >
+        <span>
+          {selectedOptions.length > 0
+            ? selectedOptions.length === 1
+              ? getCatalogLabel(selectedOptions[0])
+              : `Выбрано: ${selectedOptions.length}`
+            : placeholder}
+        </span>
+
+        <svg className="candidate-select__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M6 9L12 15L18 9"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      {selectedOptions.length > 0 ? (
+        <div className="candidate-multi-selected">
+          {selectedOptions.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => toggleValue(item.id)}
+              title="Убрать из фильтра"
+            >
+              {getCatalogLabel(item)} ×
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {isOpen ? (
+        <div className="candidate-select__dropdown candidate-select__dropdown--multi">
+          <button
+            type="button"
+            className={`candidate-select__option ${values.length === 0 ? 'is-active' : ''}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onChange([])}
+          >
+            {placeholder}
+          </button>
+
+          {isLoading ? <div className="candidate-select__empty">Загружаем...</div> : null}
+
+          {!isLoading && options.length === 0 ? (
+            <div className="candidate-select__empty">Нет вариантов</div>
+          ) : null}
+
+          {!isLoading
+            ? options.map((item) => {
+                const selected = selectedIds.has(item.id)
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`candidate-select__option candidate-select__option--check ${selected ? 'is-active' : ''}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => toggleValue(item.id)}
+                  >
+                    <span className="candidate-select__check">{selected ? '✓' : ''}</span>
+                    <span>{getCatalogLabel(item)}</span>
+                  </button>
+                )
+              })
+            : null}
         </div>
       ) : null}
     </div>
@@ -544,11 +750,20 @@ export const EmployerCandidatesPage = () => {
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
 
+  const [regionId, setRegionId] = useState(() => normalizeNumberParam(searchParams.get('region_id')))
+  const [districtId, setDistrictId] = useState(() =>
+    normalizeNumberParam(searchParams.get('district_id')),
+  )
   const [cityId, setCityId] = useState(() => normalizeNumberParam(searchParams.get('city_id')))
   const [professionId, setProfessionId] = useState(() =>
     normalizeNumberParam(searchParams.get('profession_id')),
   )
-  const [skillId, setSkillId] = useState(() => normalizeNumberParam(searchParams.get('skill_id')))
+  const [skillIds, setSkillIds] = useState(() => {
+    const values = normalizeNumberListParam(searchParams.get('skill_ids'))
+    const legacySkillId = normalizeNumberParam(searchParams.get('skill_id'))
+
+    return values.length > 0 ? values : legacySkillId ? [legacySkillId] : []
+  })
 
   const [experienceFrom, setExperienceFrom] = useState(() =>
     normalizeNumberParam(searchParams.get('experience_from')),
@@ -604,12 +819,32 @@ export const EmployerCandidatesPage = () => {
 
   const hasEducationApiValue = educationFilterToApiValue(educationFilter)
 
+  const cities = citiesQuery.data ?? []
+  const regions = useMemo(() => getRegionOptionsFromCities(cities), [cities])
+  const districts = useMemo(
+    () => getDistrictOptionsFromCities(cities, regionId),
+    [cities, regionId],
+  )
+  const filteredCities = useMemo(() => {
+    return cities
+      .filter((city) => {
+        if (regionId !== undefined && city.region_id !== regionId) return false
+        if (districtId !== undefined && city.district_id !== districtId) return false
+
+        return true
+      })
+      .sort((a, b) => getCityLabel(a).localeCompare(getCityLabel(b), 'ru'))
+  }, [cities, regionId, districtId])
+
   const filterParams = useMemo(
     () => ({
       search: search || undefined,
+      region_id: regionId,
+      district_id: districtId,
       city_id: cityId,
       profession_id: professionId,
-      skill_id: skillId,
+      skill_id: skillIds.length === 1 ? skillIds[0] : undefined,
+      skill_ids: skillIds.length > 0 ? skillIds.join(',') : undefined,
       experience_from: experienceFrom,
       experience_to: experienceTo,
       has_education: hasEducationApiValue,
@@ -619,9 +854,11 @@ export const EmployerCandidatesPage = () => {
     }),
     [
       search,
+      regionId,
+      districtId,
       cityId,
       professionId,
-      skillId,
+      skillIds,
       experienceFrom,
       experienceTo,
       hasEducationApiValue,
@@ -654,9 +891,11 @@ export const EmployerCandidatesPage = () => {
   const totalCandidates = totalCandidatesQuery.data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE))
 
-  const selectedCity = citiesQuery.data?.find((item) => item.id === cityId)
+  const selectedRegion = regions.find((item) => item.id === regionId)
+  const selectedDistrict = districts.find((item) => item.id === districtId)
+  const selectedCity = cities.find((item) => item.id === cityId)
   const selectedProfession = professionsQuery.data?.find((item) => item.id === professionId)
-  const selectedSkill = skillsQuery.data?.find((item) => item.id === skillId)
+  const selectedSkills = (skillsQuery.data ?? []).filter((item) => skillIds.includes(item.id))
   const selectedEducationInstitution = educationInstitutionsQuery.data?.find(
     (item) => item.id === educationInstitutionId,
   )
@@ -664,9 +903,11 @@ export const EmployerCandidatesPage = () => {
 
   const activeFiltersCount = [
     search,
+    regionId,
+    districtId,
     cityId,
     professionId,
-    skillId,
+    skillIds.length > 0 ? skillIds.join(',') : undefined,
     experienceFrom,
     experienceTo,
     educationFilter !== 'any' ? educationFilter : undefined,
@@ -678,12 +919,26 @@ export const EmployerCandidatesPage = () => {
   const visiblePages = getVisiblePages(page, totalPages)
 
   useEffect(() => {
+    if (!selectedCity) return
+
+    if (selectedCity.region_id && regionId === undefined) {
+      setRegionId(selectedCity.region_id)
+    }
+
+    if (selectedCity.district_id && districtId === undefined) {
+      setDistrictId(selectedCity.district_id)
+    }
+  }, [selectedCity, regionId, districtId])
+
+  useEffect(() => {
     const nextParams: Record<string, string> = {}
 
     if (search) nextParams.search = search
+    if (regionId !== undefined) nextParams.region_id = String(regionId)
+    if (districtId !== undefined) nextParams.district_id = String(districtId)
     if (cityId !== undefined) nextParams.city_id = String(cityId)
     if (professionId !== undefined) nextParams.profession_id = String(professionId)
-    if (skillId !== undefined) nextParams.skill_id = String(skillId)
+    if (skillIds.length > 0) nextParams.skill_ids = skillIds.join(',')
     if (experienceFrom !== undefined) nextParams.experience_from = String(experienceFrom)
     if (experienceTo !== undefined) nextParams.experience_to = String(experienceTo)
     if (hasEducationApiValue !== undefined) nextParams.has_education = hasEducationApiValue
@@ -697,9 +952,11 @@ export const EmployerCandidatesPage = () => {
     setSearchParams(nextParams)
   }, [
     search,
+    regionId,
+    districtId,
     cityId,
     professionId,
-    skillId,
+    skillIds.length > 0 ? skillIds.join(',') : undefined,
     experienceFrom,
     experienceTo,
     hasEducationApiValue,
@@ -723,9 +980,11 @@ export const EmployerCandidatesPage = () => {
   const resetFilters = () => {
     setSearch('')
     setSearchInput('')
+    setRegionId(undefined)
+    setDistrictId(undefined)
     setCityId(undefined)
     setProfessionId(undefined)
-    setSkillId(undefined)
+    setSkillIds([])
     setExperienceFrom(undefined)
     setExperienceTo(undefined)
     setEducationFilter('any')
@@ -769,7 +1028,7 @@ export const EmployerCandidatesPage = () => {
                 <h1>Резюме соискателей</h1>
 
                 <p>
-                  Ищите кандидатов по профессии, городу, навыкам, образованию, возрасту и опыту.
+                  Ищите кандидатов по профессии, области, району, городу, нескольким навыкам, образованию, возрасту и опыту.
                   В карточке видно всё главное: специализация, город, навыки и последний опыт
                   работы.
                 </p>
@@ -825,9 +1084,13 @@ export const EmployerCandidatesPage = () => {
                 <span className="candidates-active-filters__label">Фильтры:</span>
 
                 {search ? <span>Поиск: {search}</span> : null}
-                {selectedCity ? <span>{selectedCity.name}</span> : null}
+                {selectedRegion ? <span>Область: {selectedRegion.name}</span> : null}
+                {selectedDistrict ? <span>Район: {selectedDistrict.name}</span> : null}
+                {selectedCity ? <span>{getCityLabel(selectedCity)}</span> : null}
                 {selectedProfession ? <span>{selectedProfession.name}</span> : null}
-                {selectedSkill ? <span>{selectedSkill.name}</span> : null}
+                {selectedSkills.map((skill) => (
+                  <span key={skill.id}>Навык: {skill.name}</span>
+                ))}
 
                 {educationFilter !== 'any' ? (
                   <span>{selectedEducationFilter?.name || 'Образование'}</span>
@@ -869,12 +1132,47 @@ export const EmployerCandidatesPage = () => {
                   </div>
 
                   <CandidateSelect
-                    label="Город"
+                    label="Область"
+                    placeholder="Все области"
+                    selectKey="region"
+                    value={regionId}
+                    options={regions}
+                    isLoading={citiesQuery.isLoading}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
+                    onChange={(value) => {
+                      setRegionId(value)
+                      setDistrictId(undefined)
+                      setCityId(undefined)
+                      setPage(1)
+                    }}
+                  />
+
+                  <CandidateSelect
+                    label="Район"
+                    placeholder="Все районы"
+                    selectKey="district"
+                    value={districtId}
+                    options={districts}
+                    isLoading={citiesQuery.isLoading}
+                    disabled={regionId === undefined}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
+                    onChange={(value) => {
+                      setDistrictId(value)
+                      setCityId(undefined)
+                      setPage(1)
+                    }}
+                  />
+
+                  <CandidateSelect
+                    label="Город / населённый пункт"
                     placeholder="Все города"
                     selectKey="city"
                     value={cityId}
-                    options={citiesQuery.data ?? []}
+                    options={filteredCities}
                     isLoading={citiesQuery.isLoading}
+                    disabled={regionId === undefined && districtId === undefined}
                     openSelect={openSelect}
                     setOpenSelect={setOpenSelect}
                     onChange={(value) => {
@@ -898,17 +1196,17 @@ export const EmployerCandidatesPage = () => {
                     }}
                   />
 
-                  <CandidateSelect
-                    label="Навык"
-                    placeholder="Любой навык"
-                    selectKey="skill"
-                    value={skillId}
+                  <CandidateMultiSelect
+                    label="Навыки"
+                    placeholder="Любые навыки"
+                    selectKey="skills"
+                    values={skillIds}
                     options={skillsQuery.data ?? []}
                     isLoading={skillsQuery.isLoading}
                     openSelect={openSelect}
                     setOpenSelect={setOpenSelect}
-                    onChange={(value) => {
-                      setSkillId(value)
+                    onChange={(values) => {
+                      setSkillIds(values)
                       setPage(1)
                     }}
                   />

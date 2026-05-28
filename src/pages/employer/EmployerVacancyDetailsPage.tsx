@@ -10,6 +10,13 @@ import './employer-vacancy-details.css'
 type CatalogItem = {
   id: number
   name: string
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+  full_name?: string | null
 }
 
 type SkillItem = {
@@ -20,6 +27,13 @@ type SkillItem = {
 type NamedEntity = {
   id: number
   name: string
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+  full_name?: string | null
 }
 
 type VacancyResponse = {
@@ -97,7 +111,7 @@ const fetchVacancy = async (vacancyId: number): Promise<VacancyResponse> => {
 
 const fetchCatalog = async <T,>(catalogName: string): Promise<T[]> => {
   const { data } = await http.get(`/public/catalogs/${catalogName}`, {
-    params: { skip: 0, limit: 500 },
+    params: { skip: 0, limit: catalogName === 'cities' ? 1000 : 500 },
   })
 
   return toArray<T>(data)
@@ -290,11 +304,72 @@ const isArchivedStatus = (statusName?: string | null) => {
   return value.includes('архив') || value.includes('archive')
 }
 
+const getCatalogDisplayName = (item?: CatalogItem | NamedEntity | null) => {
+  if (!item) return ''
+
+  return item.full_name || item.name
+}
+
+const getCityDisplayName = (item?: CatalogItem | NamedEntity | null) => {
+  if (!item) return ''
+
+  if (item.full_name) return item.full_name
+
+  const title = item.settlement_type_name
+    ? `${item.settlement_type_name} ${item.name}`.trim()
+    : item.name
+
+  const parts = [
+    title,
+    item.district_name,
+    item.region_name,
+  ].filter(Boolean)
+
+  return parts.join(', ')
+}
+
 const makeOptions = (items: CatalogItem[]): ComboOption[] => {
   return items.map((item) => ({
     value: item.id,
-    label: item.name,
+    label: getCatalogDisplayName(item),
   }))
+}
+
+const makeCityOptions = (items: CatalogItem[]): ComboOption[] => {
+  return items.map((item) => ({
+    value: item.id,
+    label: getCityDisplayName(item),
+  }))
+}
+
+const makeRegionOptions = (cities: CatalogItem[]): ComboOption[] => {
+  const regions = new Map<number, string>()
+
+  cities.forEach((city) => {
+    if (city.region_id && city.region_name) {
+      regions.set(city.region_id, city.region_name)
+    }
+  })
+
+  return Array.from(regions.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'ru'))
+}
+
+const makeDistrictOptions = (cities: CatalogItem[], regionId?: number | null): ComboOption[] => {
+  const districts = new Map<number, string>()
+
+  cities.forEach((city) => {
+    if (regionId && city.region_id !== regionId) return
+
+    if (city.district_id && city.district_name) {
+      districts.set(city.district_id, city.region_name ? `${city.district_name}, ${city.region_name}` : city.district_name)
+    }
+  })
+
+  return Array.from(districts.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'ru'))
 }
 
 const ChevronIcon = ({ open }: { open: boolean }) => (
@@ -412,6 +487,8 @@ export const EmployerVacancyDetailsPage = () => {
   const [description, setDescription] = useState('')
 
   const [professionId, setProfessionId] = useState<number | null>(null)
+  const [regionId, setRegionId] = useState<number | null>(null)
+  const [districtId, setDistrictId] = useState<number | null>(null)
   const [cityId, setCityId] = useState<number | null>(null)
   const [employmentTypeId, setEmploymentTypeId] = useState<number | null>(null)
   const [workScheduleId, setWorkScheduleId] = useState<number | null>(null)
@@ -535,20 +612,55 @@ export const EmployerVacancyDetailsPage = () => {
   const skillCatalog = skillsQuery.data || []
 
   const professionOptions = useMemo(() => makeOptions(professions), [professions])
-  const cityOptions = useMemo(() => makeOptions(cities), [cities])
+  const regionOptions = useMemo(() => makeRegionOptions(cities), [cities])
+  const districtOptions = useMemo(() => makeDistrictOptions(cities, regionId), [cities, regionId])
+  const filteredCities = useMemo(() => {
+    return cities
+      .filter((city) => {
+        if (regionId && city.region_id !== regionId) return false
+        if (districtId && city.district_id !== districtId) return false
+        return true
+      })
+      .sort((a, b) => getCityDisplayName(a).localeCompare(getCityDisplayName(b), 'ru'))
+  }, [cities, regionId, districtId])
+  const cityOptions = useMemo(() => makeCityOptions(filteredCities), [filteredCities])
   const employmentTypeOptions = useMemo(() => makeOptions(employmentTypes), [employmentTypes])
   const workScheduleOptions = useMemo(() => makeOptions(workSchedules), [workSchedules])
   const currencyOptions = useMemo(() => makeOptions(currencies), [currencies])
   const experienceOptions = useMemo(() => makeOptions(experiences), [experiences])
 
   const selectedProfession = professionOptions.find((item) => item.value === professionId)
-  const selectedCity = cityOptions.find((item) => item.value === cityId)
+  const selectedRegion = regionOptions.find((item) => item.value === regionId)
+  const selectedDistrict = districtOptions.find((item) => item.value === districtId)
+  const selectedCityItem = cities.find((item) => item.id === cityId)
+  const selectedCity = selectedCityItem
+    ? {
+        value: selectedCityItem.id,
+        label: getCityDisplayName(selectedCityItem),
+      }
+    : cityOptions.find((item) => item.value === cityId)
   const selectedEmploymentType = employmentTypeOptions.find(
     (item) => item.value === employmentTypeId,
   )
   const selectedWorkSchedule = workScheduleOptions.find((item) => item.value === workScheduleId)
   const selectedCurrency = currencyOptions.find((item) => item.value === currencyId)
   const selectedExperience = experienceOptions.find((item) => item.value === experienceId)
+
+  useEffect(() => {
+    if (!cityId || !cities.length) return
+
+    const city = cities.find((item) => item.id === cityId)
+
+    if (!city) return
+
+    if (city.region_id && regionId !== city.region_id) {
+      setRegionId(city.region_id)
+    }
+
+    if (city.district_id && districtId !== city.district_id) {
+      setDistrictId(city.district_id)
+    }
+  }, [cityId, cities, regionId, districtId])
 
   const filteredSkills = useMemo(() => {
     const value = skillSearch.trim().toLowerCase()
@@ -889,7 +1001,7 @@ export const EmployerVacancyDetailsPage = () => {
   const previewSalaryMax = noSalary ? 0 : parseSalaryInput(salaryMax) || 0
 
   const previewProfession = selectedProfession?.label || vacancy?.profession?.name || 'Профессия'
-  const previewCity = selectedCity?.label || vacancy?.city?.name || 'Город'
+  const previewCity = selectedCity?.label || getCityDisplayName(vacancy?.city) || 'Город'
   const previewCompany = company?.name || 'Компания'
   const companyHref = company?.id ? `/companies/${company.id}` : ''
 
@@ -1084,17 +1196,75 @@ export const EmployerVacancyDetailsPage = () => {
               </label>
 
               <label className="employer-vacancy-field">
-                <span>Город</span>
+                <span>Область</span>
+
+                <SelectCombo
+                  value={selectedRegion?.label || ''}
+                  placeholder="Выберите область"
+                  isOpen={openCombo === 'region'}
+                  options={regionOptions}
+                  activeValue={regionId}
+                  emptyText={citiesQuery.isLoading ? 'Загружаем области...' : 'Области не найдены'}
+                  onToggle={() => setOpenCombo((prev) => (prev === 'region' ? null : 'region'))}
+                  onSelect={(option) => {
+                    setRegionId(option.value)
+                    setDistrictId(null)
+                    setCityId(null)
+                    setOpenCombo(null)
+                    clearNotice('main')
+                  }}
+                />
+              </label>
+
+              <label className="employer-vacancy-field">
+                <span>Район</span>
+
+                <SelectCombo
+                  value={selectedDistrict?.label || ''}
+                  placeholder={regionId ? 'Выберите район' : 'Сначала выберите область'}
+                  isOpen={openCombo === 'district'}
+                  options={districtOptions}
+                  activeValue={districtId}
+                  emptyText={
+                    citiesQuery.isLoading
+                      ? 'Загружаем районы...'
+                      : regionId
+                        ? 'Районы не найдены'
+                        : 'Сначала выберите область'
+                  }
+                  onToggle={() => setOpenCombo((prev) => (prev === 'district' ? null : 'district'))}
+                  onSelect={(option) => {
+                    setDistrictId(option.value)
+                    setCityId(null)
+                    setOpenCombo(null)
+                    clearNotice('main')
+                  }}
+                />
+              </label>
+
+              <label className="employer-vacancy-field employer-vacancy-field--full">
+                <span>Город / населённый пункт</span>
 
                 <SelectCombo
                   value={selectedCity?.label || ''}
-                  placeholder="Выберите город"
+                  placeholder={districtId ? 'Выберите город' : 'Сначала выберите район'}
                   isOpen={openCombo === 'city'}
                   options={cityOptions}
                   activeValue={cityId}
-                  emptyText={citiesQuery.isLoading ? 'Загружаем города...' : 'Города не найдены'}
+                  emptyText={
+                    citiesQuery.isLoading
+                      ? 'Загружаем города...'
+                      : districtId
+                        ? 'Города не найдены'
+                        : 'Сначала выберите район'
+                  }
                   onToggle={() => setOpenCombo((prev) => (prev === 'city' ? null : 'city'))}
                   onSelect={(option) => {
+                    const city = cities.find((item) => item.id === option.value)
+
+                    if (city?.region_id) setRegionId(city.region_id)
+                    if (city?.district_id) setDistrictId(city.district_id)
+
                     setCityId(option.value)
                     setOpenCombo(null)
                     clearNotice('main')

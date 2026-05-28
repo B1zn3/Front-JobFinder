@@ -9,11 +9,22 @@ import './employer-vacancies.css'
 type CatalogItem = {
   id: number
   name: string
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
 }
 
 type NamedEntity = {
   id: number
   name: string
+  full_name?: string | null
+  region_name?: string | null
+  district_name?: string | null
+  settlement_type_name?: string | null
 }
 
 type VacancyListItem = {
@@ -99,10 +110,20 @@ const fetchVacancies = async (): Promise<VacancyListItem[]> => {
 
 const fetchCatalog = async (name: string): Promise<CatalogItem[]> => {
   const { data } = await http.get(`/public/catalogs/${name}`, {
-    params: { skip: 0, limit: 100 },
+    params: { skip: 0, limit: name === 'cities' ? 1000 : 500 },
   })
 
-  return toArray<CatalogItem>(data)
+  return toArray<Record<string, unknown>>(data).map((item) => ({
+    id: Number(item.id || 0),
+    name: String(item.name || 'Без названия'),
+    full_name: typeof item.full_name === 'string' ? item.full_name : null,
+    region_id: item.region_id ? Number(item.region_id) : null,
+    region_name: typeof item.region_name === 'string' ? item.region_name : null,
+    district_id: item.district_id ? Number(item.district_id) : null,
+    district_name: typeof item.district_name === 'string' ? item.district_name : null,
+    settlement_type_id: item.settlement_type_id ? Number(item.settlement_type_id) : null,
+    settlement_type_name: typeof item.settlement_type_name === 'string' ? item.settlement_type_name : null,
+  }))
 }
 
 const fetchProfessions = async (): Promise<CatalogItem[]> => {
@@ -159,12 +180,27 @@ const formatSalary = (
   return 'Зарплата не указана'
 }
 
+const getCatalogDisplayName = (item?: CatalogItem | NamedEntity | null) => {
+  if (!item) return ''
+
+  if (item.full_name) return item.full_name
+
+  const parts = [
+    item.settlement_type_name ? `${item.settlement_type_name} ${item.name}` : item.name,
+    item.district_name,
+    item.region_name,
+  ].filter(Boolean)
+
+  return parts.join(', ')
+}
+
 const getNameFromCatalog = (
   id: number | null | undefined,
   catalog: CatalogItem[],
 ) => {
   if (!id) return ''
-  return catalog.find((item) => item.id === id)?.name || ''
+  const item = catalog.find((catalogItem) => catalogItem.id === id)
+  return getCatalogDisplayName(item)
 }
 
 const getVacancyProfession = (
@@ -179,16 +215,45 @@ const getVacancyProfession = (
   )
 }
 
+const getVacancyCityCatalogItem = (
+  vacancy: VacancyListItem,
+  cities: CatalogItem[],
+) => {
+  const cityId = vacancy.city_id || vacancy.city?.id
+
+  if (!cityId) return null
+
+  return cities.find((item) => item.id === cityId) || null
+}
+
 const getVacancyCity = (
   vacancy: VacancyListItem,
   cities: CatalogItem[],
 ) => {
   return (
-    vacancy.city?.name ||
+    getCatalogDisplayName(vacancy.city) ||
     vacancy.city_name ||
-    getNameFromCatalog(vacancy.city_id, cities) ||
+    getCatalogDisplayName(getVacancyCityCatalogItem(vacancy, cities)) ||
     'Город не указан'
   )
+}
+
+const getVacancyRegion = (
+  vacancy: VacancyListItem,
+  cities: CatalogItem[],
+) => {
+  const city = getVacancyCityCatalogItem(vacancy, cities)
+
+  return city?.region_name || vacancy.city?.region_name || ''
+}
+
+const getVacancyDistrict = (
+  vacancy: VacancyListItem,
+  cities: CatalogItem[],
+) => {
+  const city = getVacancyCityCatalogItem(vacancy, cities)
+
+  return city?.district_name || vacancy.city?.district_name || ''
 }
 
 const getVacancyCurrency = (
@@ -375,6 +440,8 @@ export const EmployerVacanciesPage = () => {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<VacancyStatusFilter>('all')
   const [professionFilter, setProfessionFilter] = useState('all')
+  const [regionFilter, setRegionFilter] = useState('all')
+  const [districtFilter, setDistrictFilter] = useState('all')
   const [cityFilter, setCityFilter] = useState('all')
   const [salaryFilter, setSalaryFilter] = useState<SalaryFilter>('all')
   const [sortMode, setSortMode] = useState<SortMode>('updated-desc')
@@ -506,16 +573,46 @@ export const EmployerVacanciesPage = () => {
     return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'ru'))
   }, [vacancies, professions])
 
-  const cityOptions = useMemo(() => {
+  const regionOptions = useMemo(() => {
     const map = new Map<string, string>()
 
     vacancies.forEach((vacancy) => {
-      const name = getVacancyCity(vacancy, cities)
-      if (name && name !== 'Город не указан') map.set(name, name)
+      const name = getVacancyRegion(vacancy, cities)
+      if (name) map.set(name, name)
     })
 
     return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'ru'))
   }, [vacancies, cities])
+
+  const districtOptions = useMemo(() => {
+    const map = new Map<string, string>()
+
+    vacancies.forEach((vacancy) => {
+      const region = getVacancyRegion(vacancy, cities)
+      const district = getVacancyDistrict(vacancy, cities)
+
+      if (regionFilter !== 'all' && region !== regionFilter) return
+      if (district) map.set(district, district)
+    })
+
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'ru'))
+  }, [vacancies, cities, regionFilter])
+
+  const cityOptions = useMemo(() => {
+    const map = new Map<string, string>()
+
+    vacancies.forEach((vacancy) => {
+      const region = getVacancyRegion(vacancy, cities)
+      const district = getVacancyDistrict(vacancy, cities)
+      const name = getVacancyCity(vacancy, cities)
+
+      if (regionFilter !== 'all' && region !== regionFilter) return
+      if (districtFilter !== 'all' && district !== districtFilter) return
+      if (name && name !== 'Город не указан') map.set(name, name)
+    })
+
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'ru'))
+  }, [vacancies, cities, regionFilter, districtFilter])
 
   const filteredVacancies = useMemo(() => {
     const searchValue = search.trim().toLowerCase()
@@ -523,6 +620,8 @@ export const EmployerVacanciesPage = () => {
     const result = vacancies.filter((vacancy) => {
       const profession = getVacancyProfession(vacancy, professions)
       const city = getVacancyCity(vacancy, cities)
+      const region = getVacancyRegion(vacancy, cities)
+      const district = getVacancyDistrict(vacancy, cities)
       const status = getVacancyStatus(vacancy, statuses)
       const salaryMin = Number(vacancy.salary_min || 0)
       const salaryMax = Number(vacancy.salary_max || 0)
@@ -533,6 +632,8 @@ export const EmployerVacanciesPage = () => {
         vacancy.description,
         profession,
         city,
+        region,
+        district,
         status,
       ]
         .filter(Boolean)
@@ -546,6 +647,14 @@ export const EmployerVacanciesPage = () => {
       }
 
       if (professionFilter !== 'all' && profession !== professionFilter) {
+        return false
+      }
+
+      if (regionFilter !== 'all' && region !== regionFilter) {
+        return false
+      }
+
+      if (districtFilter !== 'all' && district !== districtFilter) {
         return false
       }
 
@@ -587,6 +696,8 @@ export const EmployerVacanciesPage = () => {
     search,
     statusFilter,
     professionFilter,
+    regionFilter,
+    districtFilter,
     cityFilter,
     salaryFilter,
     sortMode,
@@ -594,7 +705,7 @@ export const EmployerVacanciesPage = () => {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [search, statusFilter, professionFilter, cityFilter, salaryFilter, sortMode, pageSize])
+  }, [search, statusFilter, professionFilter, regionFilter, districtFilter, cityFilter, salaryFilter, sortMode, pageSize])
 
   const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / pageSize))
 
@@ -631,10 +742,21 @@ export const EmployerVacanciesPage = () => {
     setOpenFilterId((prev) => (prev === id || !id ? null : id))
   }
 
+  useEffect(() => {
+    setDistrictFilter('all')
+    setCityFilter('all')
+  }, [regionFilter])
+
+  useEffect(() => {
+    setCityFilter('all')
+  }, [districtFilter])
+
   const resetFilters = () => {
     setSearch('')
     setStatusFilter('all')
     setProfessionFilter('all')
+    setRegionFilter('all')
+    setDistrictFilter('all')
     setCityFilter('all')
     setSalaryFilter('all')
     setSortMode('updated-desc')
@@ -662,6 +784,22 @@ export const EmployerVacanciesPage = () => {
   const professionFilterOptions: FilterOption[] = [
     { value: 'all', label: 'Все профессии' },
     ...professionOptions.map((item) => ({
+      value: item,
+      label: item,
+    })),
+  ]
+
+  const regionFilterOptions: FilterOption[] = [
+    { value: 'all', label: 'Все области' },
+    ...regionOptions.map((item) => ({
+      value: item,
+      label: item,
+    })),
+  ]
+
+  const districtFilterOptions: FilterOption[] = [
+    { value: 'all', label: 'Все районы' },
+    ...districtOptions.map((item) => ({
       value: item,
       label: item,
     })),
@@ -745,7 +883,7 @@ export const EmployerVacanciesPage = () => {
                       <div>
                         <h3 className="employer-toolbar__title">Поиск и фильтры</h3>
                         <p className="employer-toolbar__subtitle">
-                          Быстро найдите нужную вакансию по названию, городу, статусу или зарплате.
+                          Быстро найдите нужную вакансию по названию, области, району, городу, статусу или зарплате.
                         </p>
                       </div>
                     </div>
@@ -758,7 +896,7 @@ export const EmployerVacanciesPage = () => {
                           <input
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Название, профессия, город или описание"
+                            placeholder="Название, профессия, область, район, город или описание"
                           />
                         </div>
                       </label>
@@ -786,6 +924,32 @@ export const EmployerVacanciesPage = () => {
                           isOpen={openFilterId === 'profession'}
                           onToggle={toggleFilter}
                           onChange={(value) => setProfessionFilter(String(value))}
+                        />
+                      </label>
+
+                      <label className="employer-filter-field">
+                        <span>Область</span>
+
+                        <FilterSelect
+                          id="region"
+                          value={regionFilter}
+                          options={regionFilterOptions}
+                          isOpen={openFilterId === 'region'}
+                          onToggle={toggleFilter}
+                          onChange={(value) => setRegionFilter(String(value))}
+                        />
+                      </label>
+
+                      <label className="employer-filter-field">
+                        <span>Район</span>
+
+                        <FilterSelect
+                          id="district"
+                          value={districtFilter}
+                          options={districtFilterOptions}
+                          isOpen={openFilterId === 'district'}
+                          onToggle={toggleFilter}
+                          onChange={(value) => setDistrictFilter(String(value))}
                         />
                       </label>
 

@@ -1521,3 +1521,85 @@
     border-radius: 20px;
   }
 }
+/* ===== GEO FILTERS + MULTI SKILLS FIX ===== */
+
+.employer-combo--multi {
+  display: grid;
+  gap: 10px;
+}
+
+.employer-combo--multi input {
+  padding-right: 44px;
+}
+
+.employer-combo__selected-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-secondary);
+}
+
+.employer-combo__selected-chip {
+  max-width: 100%;
+  min-height: 34px;
+  padding: 0 10px 0 12px;
+  border: 1px solid rgba(10, 38, 71, 0.12);
+  border-radius: 999px;
+  background: rgba(10, 38, 71, 0.08);
+  color: var(--primary);
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: var(--transition);
+}
+
+.employer-combo__selected-chip:hover {
+  transform: translateY(-1px);
+  background: rgba(180, 35, 24, 0.08);
+  border-color: rgba(180, 35, 24, 0.18);
+  color: #b42318;
+}
+
+.employer-combo__selected-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employer-combo__selected-chip strong {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 950;
+}
+
+.employer-combo__option,
+.employer-select__option {
+  align-items: flex-start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.employer-application-card__meta span,
+.employer-modal-list strong {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.company-applications-filter-card .employer-field {
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  .company-applications-filter-card .employer-field {
+    margin-bottom: 0;
+  }
+}

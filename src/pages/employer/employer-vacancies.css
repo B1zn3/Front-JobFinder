@@ -1078,3 +1078,57 @@
     font-size: 22px;
   }
 }
+
+/* ---------- Geo catalog city names fix ---------- */
+
+.employer-filter-select__button {
+  min-width: 0;
+}
+
+.employer-filter-select__dropdown {
+  overscroll-behavior: contain;
+}
+
+.employer-filter-select__option {
+  min-height: 46px;
+  height: auto;
+  padding: 10px 13px;
+  align-items: flex-start;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.employer-filter-select__option.is-active::after {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.vacancy-item__meta {
+  word-break: break-word;
+}
+
+@media (max-width: 560px) {
+  .employer-filter-select__value,
+  .employer-filter-select__placeholder {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+}
+
+
+/* ===== Region / district filters fix ===== */
+.employer-filter-select__option {
+  min-height: 44px;
+  height: auto;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.employer-filter-select__dropdown {
+  max-height: 320px;
+}

@@ -1214,3 +1214,78 @@
     min-height: 132px;
   }
 }
+/* ===== COMPANY CARD OFFICE + TITLE LINK FIX ===== */
+.vacancy-company-card__logo-link {
+  flex-shrink: 0;
+  display: inline-flex;
+  border-radius: 18px;
+  text-decoration: none;
+  outline: none;
+  transition: transform 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+.vacancy-company-card__logo-link:hover {
+  transform: translateY(-1px);
+  opacity: 0.94;
+}
+
+.vacancy-company-card__logo-link:focus-visible {
+  box-shadow: 0 0 0 4px rgba(10, 38, 71, 0.12);
+}
+
+.vacancy-company-card__title-link {
+  display: inline-block;
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 900;
+  text-decoration: none;
+  word-break: break-word;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.vacancy-company-card__title-link:hover {
+  color: var(--primary);
+}
+
+.vacancy-company-card__title-link:focus-visible {
+  outline: none;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.vacancy-company-card__office-line {
+  margin-bottom: 18px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+
+.vacancy-company-card__office-line span {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.vacancy-company-card__office-line strong {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 900;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 480px) {
+  .vacancy-company-card__title-link {
+    font-size: 21px;
+  }
+}

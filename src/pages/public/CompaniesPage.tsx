@@ -6,9 +6,28 @@ import { Header } from '../../shared/ui/Header'
 import { Footer } from '../../shared/ui/Footer'
 import './companies.css'
 
+type Region = {
+  id: number
+  name: string
+}
+
+type District = {
+  id: number
+  name: string
+  region_id?: number | null
+  region_name?: string | null
+}
+
 type City = {
   id: number
   name: string
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
 }
 
 type CompanyListItem = {
@@ -34,10 +53,17 @@ const EN_LETTERS = [
   'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
 ]
 
-const fetchCities = async (): Promise<City[]> => {
-  const { data } = await http.get('/public/catalogs/cities')
+const fetchCatalog = async <T,>(catalogName: string, limit = 100): Promise<T[]> => {
+  const { data } = await http.get(`/public/catalogs/${catalogName}`, {
+    params: { skip: 0, limit },
+  })
+
   return Array.isArray(data) ? data : []
 }
+
+const fetchRegions = () => fetchCatalog<Region>('regions', 100)
+const fetchDistricts = () => fetchCatalog<District>('districts', 1000)
+const fetchCities = () => fetchCatalog<City>('cities', 1000)
 
 const fetchCompanies = async (params: Record<string, unknown>): Promise<CompanyListItem[]> => {
   const { data } = await http.get('/public/companies', { params })
@@ -86,17 +112,27 @@ const formatVacanciesLabel = (count?: number) => {
   return `${value} вакансий`
 }
 
+const getCityDisplayName = (city?: City | null) => {
+  if (!city) return ''
+
+  if (city.full_name?.trim()) {
+    return city.full_name.trim()
+  }
+
+  const title = [city.settlement_type_name, city.name].filter(Boolean).join(' ')
+  const parts = [title, city.district_name, city.region_name].filter(Boolean)
+
+  return parts.join(', ')
+}
+
 const formatCitiesPreview = (cityNames?: string[]) => {
   if (!cityNames?.length) return ''
 
-  const visible = cityNames.slice(0, 3)
-  const rest = cityNames.length - visible.length
-
-  if (rest > 0) {
-    return `${visible.join(', ')} +${rest}`
+  if (cityNames.length === 1) {
+    return cityNames[0]
   }
 
-  return visible.join(', ')
+  return `${cityNames[0]}, и др.`
 }
 
 const buildVisiblePages = (currentPage: number, totalPages: number) => {
@@ -129,28 +165,52 @@ const CompanyLogo = ({ src, name }: { src?: string | null; name: string }) => {
 
 type CityModalProps = {
   open: boolean
+  regions: Region[]
+  districts: District[]
   cities: City[]
   selectedCityIds: number[]
   onClose: () => void
   onApply: (cityIds: number[]) => void
 }
 
-function CityModal({ open, cities, selectedCityIds, onClose, onApply }: CityModalProps) {
-  const [search, setSearch] = useState('')
+function CityModal({
+  open,
+  regions,
+  districts,
+  cities,
+  selectedCityIds,
+  onClose,
+  onApply,
+}: CityModalProps) {
+  const [tempRegionId, setTempRegionId] = useState<number | null>(null)
+  const [tempDistrictId, setTempDistrictId] = useState<number | null>(null)
   const [tempCityIds, setTempCityIds] = useState<number[]>(selectedCityIds)
 
   useEffect(() => {
     if (open) {
       setTempCityIds(selectedCityIds)
-      setSearch('')
+
+      const firstSelectedCity = cities.find((city) => selectedCityIds.includes(city.id))
+      setTempRegionId(firstSelectedCity?.region_id ?? null)
+      setTempDistrictId(firstSelectedCity?.district_id ?? null)
     }
-  }, [open, selectedCityIds])
+  }, [open, selectedCityIds, cities])
+
+  const filteredDistricts = useMemo(() => {
+    if (!tempRegionId) return districts
+    return districts.filter((district) => district.region_id === tempRegionId)
+  }, [districts, tempRegionId])
+
+  const filteredCities = useMemo(() => {
+    return cities.filter((city) => {
+      const matchesRegion = !tempRegionId || city.region_id === tempRegionId
+      const matchesDistrict = !tempDistrictId || city.district_id === tempDistrictId
+
+      return matchesRegion && matchesDistrict
+    })
+  }, [cities, tempRegionId, tempDistrictId])
 
   if (!open) return null
-
-  const filteredCities = cities.filter((city) =>
-    city.name.toLowerCase().includes(search.toLowerCase()),
-  )
 
   const toggleCity = (cityId: number) => {
     setTempCityIds((prev) =>
@@ -160,58 +220,135 @@ function CityModal({ open, cities, selectedCityIds, onClose, onApply }: CityModa
     )
   }
 
-  const clearAll = () => setTempCityIds([])
+  const clearAll = () => {
+    setTempRegionId(null)
+    setTempDistrictId(null)
+    setTempCityIds([])
+  }
 
   return (
     <div className="city-modal__overlay" onClick={onClose}>
-      <div className="city-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="city-modal city-modal--geo" onClick={(e) => e.stopPropagation()}>
         <div className="city-modal__header">
-          <h2>Где искать</h2>
+          <div>
+            <h2>Где искать</h2>
+            <p>Выберите область, район и один или несколько городов.</p>
+          </div>
+
           <button type="button" className="city-modal__close" onClick={onClose}>
             ×
           </button>
         </div>
 
-        <div className="city-modal__search">
-          <input
-            type="text"
-            placeholder="Поиск"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <div className="city-modal__geo-layout">
+          <div className="city-modal__column">
+            <div className="city-modal__column-title">Область</div>
 
-        <div className="city-modal__list">
-          <button
-            type="button"
-            className={`city-modal__item ${tempCityIds.length === 0 ? 'is-selected' : ''}`}
-            onClick={clearAll}
-          >
-            <span className="city-modal__checkbox" />
-            <span>Все города</span>
-          </button>
+            <button
+              type="button"
+              className={`city-modal__geo-item ${!tempRegionId ? 'is-selected' : ''}`}
+              onClick={() => {
+                setTempRegionId(null)
+                setTempDistrictId(null)
+              }}
+            >
+              Все области
+            </button>
 
-          {filteredCities.map((city) => {
-            const isSelected = tempCityIds.includes(city.id)
-
-            return (
+            {regions.map((region) => (
               <button
-                key={city.id}
+                key={region.id}
                 type="button"
-                className={`city-modal__item ${isSelected ? 'is-selected' : ''}`}
-                onClick={() => toggleCity(city.id)}
+                className={`city-modal__geo-item ${tempRegionId === region.id ? 'is-selected' : ''}`}
+                onClick={() => {
+                  setTempRegionId(region.id)
+                  setTempDistrictId(null)
+                }}
               >
-                <span className="city-modal__checkbox" />
-                <span>{city.name}</span>
+                {region.name}
               </button>
-            )
-          })}
+            ))}
+          </div>
+
+          <div className="city-modal__column">
+            <div className="city-modal__column-title">Район</div>
+
+            <button
+              type="button"
+              className={`city-modal__geo-item ${!tempDistrictId ? 'is-selected' : ''}`}
+              onClick={() => setTempDistrictId(null)}
+            >
+              Все районы
+            </button>
+
+            {filteredDistricts.length > 0 ? (
+              filteredDistricts.map((district) => (
+                <button
+                  key={district.id}
+                  type="button"
+                  className={`city-modal__geo-item ${
+                    tempDistrictId === district.id ? 'is-selected' : ''
+                  }`}
+                  onClick={() => setTempDistrictId(district.id)}
+                >
+                  {district.name}
+                </button>
+              ))
+            ) : (
+              <div className="city-modal__empty">Районы не найдены</div>
+            )}
+          </div>
+
+          <div className="city-modal__column city-modal__column--cities">
+            <div className="city-modal__column-title">Город / населённый пункт</div>
+
+            <button
+              type="button"
+              className={`city-modal__item ${tempCityIds.length === 0 ? 'is-selected' : ''}`}
+              onClick={() => setTempCityIds([])}
+            >
+              <span className="city-modal__checkbox" />
+              <span>Все города</span>
+            </button>
+
+            {filteredCities.length > 0 ? (
+              filteredCities.map((city) => {
+                const isSelected = tempCityIds.includes(city.id)
+
+                return (
+                  <button
+                    key={city.id}
+                    type="button"
+                    className={`city-modal__item ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => toggleCity(city.id)}
+                    title={getCityDisplayName(city)}
+                  >
+                    <span className="city-modal__checkbox" />
+                    <span>{getCityDisplayName(city)}</span>
+                  </button>
+                )
+              })
+            ) : (
+              <div className="city-modal__empty">Города не найдены</div>
+            )}
+          </div>
         </div>
+
+        {tempCityIds.length > 0 ? (
+          <div className="city-modal__selected">
+            Выбрано городов: <strong>{tempCityIds.length}</strong>
+          </div>
+        ) : null}
 
         <div className="city-modal__footer">
           <button type="button" className="btn btn--outline" onClick={onClose}>
             Отменить
           </button>
+
+          <button type="button" className="btn btn--text" onClick={clearAll}>
+            Сбросить
+          </button>
+
           <button
             type="button"
             className="btn btn--primary"
@@ -244,6 +381,16 @@ export const CompaniesPage = () => {
     searchParams.get('has_vacancies_only') === 'true',
   )
   const [cityModalOpen, setCityModalOpen] = useState(false)
+
+  const regionsQuery = useQuery({
+    queryKey: ['company-regions'],
+    queryFn: fetchRegions,
+  })
+
+  const districtsQuery = useQuery({
+    queryKey: ['company-districts'],
+    queryFn: fetchDistricts,
+  })
 
   const citiesQuery = useQuery({
     queryKey: ['company-cities'],
@@ -280,13 +427,13 @@ export const CompaniesPage = () => {
     const cities = citiesQuery.data || []
     return cities
       .filter((city) => cityIds.includes(city.id))
-      .map((city) => city.name)
+      .map((city) => getCityDisplayName(city))
   }, [cityIds, citiesQuery.data])
 
   const cityTriggerLabel = useMemo(() => {
     if (!selectedCityNames.length) return 'Город'
-    if (selectedCityNames.length <= 2) return selectedCityNames.join(', ')
-    return `${selectedCityNames.slice(0, 2).join(', ')} +${selectedCityNames.length - 2}`
+    if (selectedCityNames.length === 1) return selectedCityNames[0]
+    return `${selectedCityNames[0]}, и др.`
   }, [selectedCityNames])
 
   const availableLetters = useMemo(() => {
@@ -573,6 +720,8 @@ export const CompaniesPage = () => {
 
       <CityModal
         open={cityModalOpen}
+        regions={regionsQuery.data || []}
+        districts={districtsQuery.data || []}
         cities={citiesQuery.data || []}
         selectedCityIds={cityIds}
         onClose={() => setCityModalOpen(false)}

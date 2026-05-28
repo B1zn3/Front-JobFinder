@@ -16,12 +16,23 @@ type VacancyOption = {
 type CatalogOption = {
   id: number
   name: string
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
 }
 
 type EmployerApplicationVacancy = {
   id: number
   title: string
   city_name?: string | null
+  city_full_name?: string | null
+  region_name?: string | null
+  district_name?: string | null
+  settlement_type_name?: string | null
   profession_name?: string | null
   salary_min?: number | null
   salary_max?: number | null
@@ -36,6 +47,10 @@ type EmployerApplicationApplicant = {
   last_name?: string | null
   middle_name?: string | null
   city_name?: string | null
+  city_full_name?: string | null
+  region_name?: string | null
+  district_name?: string | null
+  settlement_type_name?: string | null
   age?: number | null
   gender?: string | null
   phone?: string | null
@@ -325,6 +340,88 @@ const getErrorMessage = (error: unknown, fallback = 'Не удалось вып�
   return fallback
 }
 
+
+const getCatalogCityLabel = (item: CatalogOption) => {
+  if (item.full_name?.trim()) return item.full_name.trim()
+
+  const settlementType = item.settlement_type_name?.trim() || ''
+  const title = `${settlementType} ${item.name}`.trim()
+  const parts = [title, item.district_name, item.region_name]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+
+  return parts.join(', ') || item.name
+}
+
+const getApplicationCityLabel = (
+  item?: {
+    city_name?: string | null
+    city_full_name?: string | null
+    region_name?: string | null
+    district_name?: string | null
+    settlement_type_name?: string | null
+  } | null,
+) => {
+  if (!item) return 'Не указан'
+  if (item.city_full_name?.trim()) return item.city_full_name.trim()
+
+  const cityName = item.city_name?.trim() || ''
+
+  if (!cityName) return 'Не указан'
+
+  const looksFull =
+    cityName.includes(',') ||
+    Boolean(item.region_name && cityName.includes(item.region_name)) ||
+    Boolean(item.district_name && cityName.includes(item.district_name))
+
+  if (looksFull) return cityName
+
+  const settlementType = item.settlement_type_name?.trim() || ''
+  const title = `${settlementType} ${cityName}`.trim()
+  const parts = [title, item.district_name, item.region_name]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+
+  return parts.join(', ') || cityName
+}
+
+const makeUniqueRegionOptions = (cities: CatalogOption[]): SelectOption[] => {
+  const map = new Map<string, string>()
+
+  cities.forEach((city) => {
+    if (city.region_id && city.region_name) {
+      map.set(String(city.region_id), city.region_name)
+    }
+  })
+
+  return Array.from(map.entries())
+    .sort(([, a], [, b]) => a.localeCompare(b, 'ru'))
+    .map(([value, label]) => ({ value, label }))
+}
+
+const makeUniqueDistrictOptions = (
+  cities: CatalogOption[],
+  regionId: string,
+): SelectOption[] => {
+  const map = new Map<string, string>()
+
+  cities.forEach((city) => {
+    if (regionId && String(city.region_id || '') !== regionId) return
+
+    if (city.district_id && city.district_name) {
+      const label = city.region_name
+        ? `${city.district_name} — ${city.region_name}`
+        : city.district_name
+
+      map.set(String(city.district_id), label)
+    }
+  })
+
+  return Array.from(map.entries())
+    .sort(([, a], [, b]) => a.localeCompare(b, 'ru'))
+    .map(([value, label]) => ({ value, label }))
+}
+
 const fetchEmployerApplications = async (params: Record<string, unknown>) => {
   const { data } = await http.get<EmployerApplicationListResponse>('/companies/me/applications', {
     params,
@@ -395,7 +492,7 @@ const fetchCatalog = async <T,>(name: string): Promise<T[]> => {
   const { data } = await http.get(`/public/catalogs/${name}`, {
     params: {
       skip: 0,
-      limit: 100,
+      limit: 1000,
     },
   })
 
@@ -406,7 +503,7 @@ const fetchProfessions = async (): Promise<CatalogOption[]> => {
   const { data } = await http.get('/public/professions', {
     params: {
       skip: 0,
-      limit: 100,
+      limit: 1000,
     },
   })
 
@@ -591,6 +688,120 @@ const SearchSelectField = ({
   )
 }
 
+
+type MultiSearchSelectProps = {
+  label: string
+  selectedValues: string[]
+  search: string
+  placeholder: string
+  options: SelectOption[]
+  openKey: string
+  activeOpenKey: string | null
+  emptyText?: string
+  onOpenChange: (value: string | null) => void
+  onSearchChange: (value: string) => void
+  onToggleValue: (option: SelectOption) => void
+  onRemoveValue: (value: string) => void
+  onClear: () => void
+}
+
+const MultiSearchSelectField = ({
+  label,
+  selectedValues,
+  search,
+  placeholder,
+  options,
+  openKey,
+  activeOpenKey,
+  emptyText = 'Ничего не найдено',
+  onOpenChange,
+  onSearchChange,
+  onToggleValue,
+  onRemoveValue,
+  onClear,
+}: MultiSearchSelectProps) => {
+  const isOpen = activeOpenKey === openKey
+  const selectedSet = new Set(selectedValues)
+  const searchValue = search.trim().toLowerCase()
+  const selectedOptions = options.filter((option) => selectedSet.has(option.value))
+  const visibleOptions = options
+    .filter((option) => !selectedSet.has(option.value))
+    .filter((option) => !searchValue || option.label.toLowerCase().includes(searchValue))
+    .slice(0, 40)
+
+  return (
+    <div className="employer-field">
+      <span>{label}</span>
+
+      <div className={`employer-combo employer-combo--multi ${isOpen ? 'is-open' : ''}`}>
+        {selectedOptions.length > 0 ? (
+          <div className="employer-combo__selected-list">
+            {selectedOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className="employer-combo__selected-chip"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onRemoveValue(option.value)}
+              >
+                <span>{option.label}</span>
+                <strong>×</strong>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <input
+          value={search}
+          placeholder={selectedOptions.length > 0 ? 'Добавить ещё навык' : placeholder}
+          autoComplete="off"
+          onFocus={() => onOpenChange(openKey)}
+          onChange={(event) => {
+            onSearchChange(event.target.value)
+            onOpenChange(openKey)
+          }}
+        />
+
+        {search || selectedOptions.length > 0 ? (
+          <button
+            type="button"
+            className="employer-combo__clear"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onSearchChange('')
+              onClear()
+              onOpenChange(null)
+            }}
+            aria-label="Очистить"
+          >
+            ×
+          </button>
+        ) : null}
+
+        {isOpen ? (
+          <div className="employer-combo__dropdown">
+            {visibleOptions.length > 0 ? (
+              visibleOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className="employer-combo__option"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onToggleValue(option)}
+                >
+                  {option.label}
+                </button>
+              ))
+            ) : (
+              <div className="employer-combo__empty">{emptyText}</div>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 const StatusBadge = ({ status }: { status: string }) => (
   <span className={`employer-status ${getStatusClassName(status)}`}>{getStatusLabel(status)}</span>
 )
@@ -646,7 +857,7 @@ const ApplicationCard = ({
       </div>
 
       <div className="employer-application-card__meta">
-        <span>{item.applicant.city_name || 'Город не указан'}</span>
+        <span>{getApplicationCityLabel(item.applicant)}</span>
         <span>
           {typeof item.applicant.age === 'number'
             ? `${item.applicant.age} лет`
@@ -818,7 +1029,7 @@ const DetailModal = ({
             <div className="employer-modal-list">
               <div>
                 <span>Город</span>
-                <strong>{item.applicant.city_name || 'Не указан'}</strong>
+                <strong>{getApplicationCityLabel(item.applicant)}</strong>
               </div>
 
               <div>
@@ -881,7 +1092,7 @@ const DetailModal = ({
 
               <div>
                 <span>Город</span>
-                <strong>{item.vacancy.city_name || 'Не указан'}</strong>
+                <strong>{getApplicationCityLabel(item.vacancy)}</strong>
               </div>
 
               <div>
@@ -1017,9 +1228,11 @@ export const CompanyApplicationsPage = () => {
 
   const [statusFilter, setStatusFilter] = useState('')
   const [vacancyId, setVacancyId] = useState('')
+  const [regionId, setRegionId] = useState('')
+  const [districtId, setDistrictId] = useState('')
   const [cityId, setCityId] = useState('')
   const [professionId, setProfessionId] = useState('')
-  const [skillId, setSkillId] = useState('')
+  const [skillIds, setSkillIds] = useState<string[]>([])
   const [hasCoverLetter, setHasCoverLetter] = useState('')
   const [suspiciousOnly, setSuspiciousOnly] = useState('')
   const [scoreFrom, setScoreFrom] = useState('')
@@ -1027,6 +1240,8 @@ export const CompanyApplicationsPage = () => {
   const [periodDays, setPeriodDays] = useState('30')
   const [sortBy, setSortBy] = useState('smart')
 
+  const [regionSearch, setRegionSearch] = useState('')
+  const [districtSearch, setDistrictSearch] = useState('')
   const [citySearch, setCitySearch] = useState('')
   const [professionSearch, setProfessionSearch] = useState('')
   const [skillSearch, setSkillSearch] = useState('')
@@ -1034,6 +1249,8 @@ export const CompanyApplicationsPage = () => {
   const [openSelect, setOpenSelect] = useState<string | null>(null)
   const [selectedApplicationId, setSelectedApplicationId] = useState<number | null>(null)
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const skillIdsKey = skillIds.join(',')
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -1062,9 +1279,11 @@ export const CompanyApplicationsPage = () => {
   }, [
     statusFilter,
     vacancyId,
+    regionId,
+    districtId,
     cityId,
     professionId,
-    skillId,
+    skillIdsKey,
     hasCoverLetter,
     suspiciousOnly,
     scoreFrom,
@@ -1121,17 +1340,58 @@ export const CompanyApplicationsPage = () => {
     ]
   }, [vacanciesQuery.data])
 
+  const regionOptions = useMemo<SelectOption[]>(() => {
+    return makeUniqueRegionOptions(citiesQuery.data || [])
+  }, [citiesQuery.data])
+
+  const districtOptions = useMemo<SelectOption[]>(() => {
+    return makeUniqueDistrictOptions(citiesQuery.data || [], regionId)
+  }, [citiesQuery.data, regionId])
+
+  const filteredRegionOptions = useMemo<SelectOption[]>(() => {
+    const value = regionSearch.trim().toLowerCase()
+
+    return regionOptions
+      .filter((item) => !value || item.label.toLowerCase().includes(value))
+      .slice(0, 40)
+  }, [regionOptions, regionSearch])
+
+  const filteredDistrictOptions = useMemo<SelectOption[]>(() => {
+    const value = districtSearch.trim().toLowerCase()
+
+    return districtOptions
+      .filter((item) => !value || item.label.toLowerCase().includes(value))
+      .slice(0, 40)
+  }, [districtOptions, districtSearch])
+
   const filteredCityOptions = useMemo<SelectOption[]>(() => {
     const value = citySearch.trim().toLowerCase()
 
     return (citiesQuery.data || [])
-      .filter((item) => !value || item.name.toLowerCase().includes(value))
+      .filter((item) => !regionId || String(item.region_id || '') === regionId)
+      .filter((item) => !districtId || String(item.district_id || '') === districtId)
+      .filter((item) => {
+        if (!value) return true
+
+        const searchable = [
+          item.name,
+          item.full_name,
+          item.region_name,
+          item.district_name,
+          item.settlement_type_name,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+
+        return searchable.includes(value)
+      })
       .slice(0, 40)
       .map((item) => ({
         value: String(item.id),
-        label: item.name,
+        label: getCatalogCityLabel(item),
       }))
-  }, [citiesQuery.data, citySearch])
+  }, [citiesQuery.data, citySearch, districtId, regionId])
 
   const filteredProfessionOptions = useMemo<SelectOption[]>(() => {
     const value = professionSearch.trim().toLowerCase()
@@ -1145,17 +1405,14 @@ export const CompanyApplicationsPage = () => {
       }))
   }, [professionsQuery.data, professionSearch])
 
-  const filteredSkillOptions = useMemo<SelectOption[]>(() => {
-    const value = skillSearch.trim().toLowerCase()
-
+  const skillOptions = useMemo<SelectOption[]>(() => {
     return (skillsQuery.data || [])
-      .filter((item) => !value || item.name.toLowerCase().includes(value))
-      .slice(0, 40)
       .map((item) => ({
         value: String(item.id),
         label: item.name,
       }))
-  }, [skillsQuery.data, skillSearch])
+      .sort((a, b) => a.label.localeCompare(b.label, 'ru'))
+  }, [skillsQuery.data])
 
   const listParams = useMemo(() => {
     const params: Record<string, unknown> = {
@@ -1168,9 +1425,12 @@ export const CompanyApplicationsPage = () => {
     if (debouncedSearch) params.search = debouncedSearch
     if (statusFilter) params.status = statusFilter
     if (vacancyId) params.vacancy_id = Number(vacancyId)
+    if (regionId) params.region_id = Number(regionId)
+    if (districtId) params.district_id = Number(districtId)
     if (cityId) params.city_id = Number(cityId)
     if (professionId) params.profession_id = Number(professionId)
-    if (skillId) params.skill_id = Number(skillId)
+    if (skillIds.length > 0) params.skill_ids = skillIds.join(',')
+    if (skillIds.length === 1) params.skill_id = Number(skillIds[0])
     if (hasCoverLetter) params.has_cover_letter = hasCoverLetter === 'true'
     if (suspiciousOnly) params.suspicious_only = suspiciousOnly === 'true'
     if (scoreFrom) params.score_from = Number(scoreFrom)
@@ -1184,9 +1444,11 @@ export const CompanyApplicationsPage = () => {
     debouncedSearch,
     statusFilter,
     vacancyId,
+    regionId,
+    districtId,
     cityId,
     professionId,
-    skillId,
+    skillIdsKey,
     hasCoverLetter,
     suspiciousOnly,
     scoreFrom,
@@ -1245,9 +1507,11 @@ export const CompanyApplicationsPage = () => {
     debouncedSearch,
     statusFilter,
     vacancyId,
+    regionId,
+    districtId,
     cityId,
     professionId,
-    skillId,
+    skillIdsKey,
     hasCoverLetter,
     suspiciousOnly,
     scoreFrom,
@@ -1260,15 +1524,19 @@ export const CompanyApplicationsPage = () => {
     setDebouncedSearch('')
     setStatusFilter('')
     setVacancyId('')
+    setRegionId('')
+    setDistrictId('')
     setCityId('')
     setProfessionId('')
-    setSkillId('')
+    setSkillIds([])
     setHasCoverLetter('')
     setSuspiciousOnly('')
     setScoreFrom('')
     setScoreTo('')
     setSortBy('smart')
     setPeriodDays('30')
+    setRegionSearch('')
+    setDistrictSearch('')
     setCitySearch('')
     setProfessionSearch('')
     setSkillSearch('')
@@ -1399,22 +1667,88 @@ export const CompanyApplicationsPage = () => {
                     onChange={setSuspiciousOnly}
                   />
 
-                 <SearchSelectField
-  label="Город кандидата"
-  value={cityId}
-  search={citySearch}
-  placeholder="Поиск города"
-  options={filteredCityOptions}
-  openKey="city"
-  activeOpenKey={openSelect}
-  onOpenChange={setOpenSelect}
-  onSearchChange={setCitySearch}
-  onValueReset={() => setCityId('')}
-  onSelect={(option) => {
-    setCityId(option.value)
-    setCitySearch(option.label)
-  }}
-/>
+                  <SearchSelectField
+                    label="Область кандидата"
+                    value={regionId}
+                    search={regionSearch}
+                    placeholder="Поиск области"
+                    options={filteredRegionOptions}
+                    openKey="region"
+                    activeOpenKey={openSelect}
+                    onOpenChange={setOpenSelect}
+                    onSearchChange={setRegionSearch}
+                    onValueReset={() => {
+                      setRegionId('')
+                      setDistrictId('')
+                      setCityId('')
+                      setDistrictSearch('')
+                      setCitySearch('')
+                    }}
+                    onSelect={(option) => {
+                      setRegionId(option.value)
+                      setRegionSearch(option.label)
+                      setDistrictId('')
+                      setCityId('')
+                      setDistrictSearch('')
+                      setCitySearch('')
+                    }}
+                  />
+
+                  <SearchSelectField
+                    label="Район кандидата"
+                    value={districtId}
+                    search={districtSearch}
+                    placeholder={regionId ? 'Поиск района' : 'Сначала выберите область'}
+                    options={filteredDistrictOptions}
+                    openKey="district"
+                    activeOpenKey={openSelect}
+                    onOpenChange={setOpenSelect}
+                    onSearchChange={setDistrictSearch}
+                    onValueReset={() => {
+                      setDistrictId('')
+                      setCityId('')
+                      setCitySearch('')
+                    }}
+                    onSelect={(option) => {
+                      setDistrictId(option.value)
+                      setDistrictSearch(option.label)
+                      setCityId('')
+                      setCitySearch('')
+                    }}
+                  />
+
+                  <SearchSelectField
+                    label="Город / населённый пункт кандидата"
+                    value={cityId}
+                    search={citySearch}
+                    placeholder="Поиск населённого пункта"
+                    options={filteredCityOptions}
+                    openKey="city"
+                    activeOpenKey={openSelect}
+                    onOpenChange={setOpenSelect}
+                    onSearchChange={setCitySearch}
+                    onValueReset={() => setCityId('')}
+                    onSelect={(option) => {
+                      setCityId(option.value)
+                      setCitySearch(option.label)
+
+                      const city = (citiesQuery.data || []).find((item) => String(item.id) === option.value)
+
+                      if (city?.region_id) {
+                        setRegionId(String(city.region_id))
+                        setRegionSearch(city.region_name || '')
+                      }
+
+                      if (city?.district_id) {
+                        setDistrictId(String(city.district_id))
+                        setDistrictSearch(
+                          city.region_name && city.district_name
+                            ? `${city.district_name} — ${city.region_name}`
+                            : city.district_name || '',
+                        )
+                      }
+                    }}
+                  />
 
                   <SearchSelectField
   label="Профессия"
@@ -1433,22 +1767,30 @@ export const CompanyApplicationsPage = () => {
   }}
 />
 
-                  <SearchSelectField
-  label="Навык"
-  value={skillId}
-  search={skillSearch}
-  placeholder="Поиск навыка"
-  options={filteredSkillOptions}
-  openKey="skill"
-  activeOpenKey={openSelect}
-  onOpenChange={setOpenSelect}
-  onSearchChange={setSkillSearch}
-  onValueReset={() => setSkillId('')}
-  onSelect={(option) => {
-    setSkillId(option.value)
-    setSkillSearch(option.label)
-  }}
-/>
+                  <MultiSearchSelectField
+                    label="Навыки"
+                    selectedValues={skillIds}
+                    search={skillSearch}
+                    placeholder="Поиск навыков"
+                    options={skillOptions}
+                    openKey="skill"
+                    activeOpenKey={openSelect}
+                    onOpenChange={setOpenSelect}
+                    onSearchChange={setSkillSearch}
+                    onToggleValue={(option) => {
+                      setSkillIds((prev) =>
+                        prev.includes(option.value) ? prev : [...prev, option.value],
+                      )
+                      setSkillSearch('')
+                    }}
+                    onRemoveValue={(value) => {
+                      setSkillIds((prev) => prev.filter((item) => item !== value))
+                    }}
+                    onClear={() => {
+                      setSkillIds([])
+                      setSkillSearch('')
+                    }}
+                  />
 
                   <div className="company-applications-filter-row">
                     <label className="employer-field">

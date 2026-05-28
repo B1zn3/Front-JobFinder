@@ -777,3 +777,162 @@
     font-size: 20px;
   }
 }
+
+/* ===== GEO FILTERS FIX ===== */
+
+.custom-select.is-disabled {
+  opacity: 0.65;
+}
+
+.custom-select__trigger:disabled {
+  cursor: not-allowed;
+  background: var(--bg-secondary);
+}
+
+.custom-select__trigger span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select__dropdown {
+  bottom: auto;
+  transform: none;
+}
+
+.custom-select__option {
+  min-height: 44px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.custom-select__empty {
+  min-height: 44px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+}
+
+.active-filter-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.vacancy-pill {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.filter-group--salary {
+  margin-bottom: 18px;
+}
+
+
+.salary-filter__amounts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.salary-filter__field {
+  min-width: 0;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--bg-card);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.salary-filter__field:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(10, 38, 71, 0.08);
+  background: #fff;
+}
+
+.salary-filter__field span {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.salary-filter__field input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.salary-filter__field input::placeholder {
+  color: #9aa4b2;
+  font-weight: 700;
+}
+
+.salary-filter__field input::-webkit-outer-spin-button,
+.salary-filter__field input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.salary-filter__field input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.salary-filter__currency {
+  margin-top: 10px;
+}
+
+.salary-filter__currency .custom-select {
+  margin-bottom: 0;
+}
+
+.salary-filter__currency .filter-label {
+  display: none;
+}
+
+.salary-filter__currency .custom-select__trigger {
+  min-height: 52px;
+  padding: 0 14px;
+  border-radius: 15px;
+  background: var(--bg-card);
+  font-weight: 900;
+}
+
+.salary-filter__currency .custom-select__trigger span:first-child {
+  max-width: 100%;
+}
+
+.salary-filter__currency .custom-select__dropdown {
+  left: 0;
+  right: 0;
+  min-width: 100%;
+}
+
+.salary-filter__currency .custom-select__option {
+  font-weight: 800;
+}
+
+@media (max-width: 768px) {
+  .salary-filter__amounts {
+    grid-template-columns: 1fr;
+  }
+}

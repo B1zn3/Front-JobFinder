@@ -107,7 +107,6 @@
 
 .section-block {
   margin-bottom: 30px;
-  overflow: visible;
 }
 
 .section-block__label {
@@ -476,6 +475,7 @@
   width: 18px;
   height: 18px;
   accent-color: var(--primary);
+      cursor: pointer;
 }
 
 .ghost-add-btn {
@@ -706,5 +706,33 @@
   .field input,
   .field textarea {
     border-radius: 16px;
+  }
+}
+
+/* ===== CREATE RESUME GEO FIX ===== */
+
+.create-resume-page .combo__dropdown {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform: none;
+}
+
+.create-resume-page .combo__option {
+  min-height: 44px;
+  height: auto;
+  padding: 11px 14px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.create-resume-page .combo-field__value,
+.create-resume-page .combo-field__placeholder {
+  min-width: 0;
+}
+
+@media (min-width: 769px) {
+  .create-resume-page .section-block .form-grid--two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -915,3 +915,438 @@
     font-size: 32px;
   }
 }
+/* ===== GEO OFFICES FIX ===== */
+
+.company-profile-field select {
+  width: 100%;
+  min-height: 56px;
+  margin: 0;
+  padding: 0 44px 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  outline: none;
+  transition: var(--transition);
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 22px) 50%,
+    calc(100% - 16px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+
+.company-profile-field select:hover {
+  border-color: rgba(10, 38, 71, 0.16);
+}
+
+.company-profile-field select:focus {
+  border-color: var(--primary);
+  background-color: var(--bg-card);
+  box-shadow: 0 0 0 4px rgba(10, 38, 71, 0.08);
+}
+
+.company-profile-field select:disabled,
+.company-profile-select-field.is-disabled select {
+  opacity: 0.66;
+  cursor: not-allowed;
+  background-color: var(--bg-secondary);
+}
+
+.company-profile-offices {
+  grid-column: 1 / -1;
+  margin: 24px 0 22px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.company-profile-offices__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.company-profile-offices__head h3 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 900;
+}
+
+.company-profile-offices__head p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.company-profile-offices__head > strong {
+  min-width: 54px;
+  min-height: 54px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 24px rgba(10, 38, 71, 0.16);
+}
+
+.company-profile-offices__filters,
+.company-profile-offices__add {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.company-profile-offices__filters .company-profile-field,
+.company-profile-offices__add .company-profile-field {
+  margin-bottom: 0;
+}
+
+.company-profile-offices__add {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.company-profile-offices__add .company-profile-btn {
+  min-width: 190px;
+  min-height: 56px;
+  border-radius: 18px;
+}
+
+.company-profile-office-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.company-profile-office-chip {
+  max-width: 100%;
+  min-height: 44px;
+  padding: 6px 8px 6px 15px;
+  border: 1px solid rgba(10, 38, 71, 0.14);
+  border-radius: 999px;
+  background: rgba(10, 38, 71, 0.06);
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.company-profile-office-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-profile-office-chip button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(10, 38, 71, 0.1);
+  color: var(--primary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.company-profile-office-chip button:hover {
+  background: rgba(180, 35, 24, 0.12);
+  color: #b42318;
+}
+
+.company-profile-offices__empty {
+  padding: 16px 18px;
+  border: 1px dashed var(--border);
+  border-radius: 18px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 800;
+}
+
+@media (max-width: 1080px) {
+  .company-profile-offices__filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .company-profile-offices__filters .company-profile-field:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .company-profile-offices {
+    margin: 22px 0;
+    padding: 20px 16px;
+    border-radius: 22px;
+  }
+
+  .company-profile-offices__head {
+    flex-direction: column;
+  }
+
+  .company-profile-offices__filters,
+  .company-profile-offices__add {
+    grid-template-columns: 1fr;
+  }
+
+  .company-profile-offices__filters .company-profile-field:last-child {
+    grid-column: auto;
+  }
+
+  .company-profile-offices__add .company-profile-btn {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .company-profile-offices {
+    padding: 18px 14px;
+    border-radius: 20px;
+  }
+
+  .company-profile-office-chip {
+    width: 100%;
+    border-radius: 18px;
+  }
+
+  .company-profile-office-chip span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ===== COMPANY PROFILE OFFICES: CLEAN GEO COMBOBOXES ===== */
+.company-profile-main-card,
+.company-profile-form-grid,
+.company-profile-offices {
+  overflow: visible;
+}
+
+.company-profile-offices__filters,
+.company-profile-offices__add {
+  display: none !important;
+}
+
+.company-profile-offices__select-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 1fr)
+    minmax(220px, 1fr)
+    minmax(260px, 1.25fr)
+    190px;
+  gap: 14px;
+  align-items: end;
+  min-width: 0;
+}
+
+.company-profile-field-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 900;
+}
+
+.company-geo-select {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  z-index: 1;
+}
+
+.company-geo-select.is-open {
+  z-index: 180;
+}
+
+.company-geo-select.is-disabled {
+  opacity: 0.68;
+}
+
+.company-geo-select__trigger {
+  width: 100%;
+  min-width: 0;
+  min-height: 56px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition: var(--transition);
+}
+
+.company-geo-select__trigger:hover:not(:disabled) {
+  border-color: rgba(10, 38, 71, 0.18);
+  background: var(--bg-card);
+}
+
+.company-geo-select__trigger.is-open {
+  border-color: var(--primary);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 4px rgba(10, 38, 71, 0.08);
+}
+
+.company-geo-select__trigger:disabled {
+  cursor: not-allowed;
+  background: #f4f6fa;
+}
+
+.company-geo-select__trigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-geo-select__trigger .is-value {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.company-geo-select__trigger .is-placeholder {
+  color: #94a3b8;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.company-geo-select__icon {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  color: var(--text-muted);
+  transition: transform 0.18s ease;
+}
+
+.company-geo-select__trigger.is-open .company-geo-select__icon {
+  transform: rotate(180deg);
+}
+
+.company-geo-select__dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  bottom: auto !important;
+  left: 0;
+  right: 0;
+  transform: none !important;
+  z-index: 250;
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg-card);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+  scrollbar-width: thin;
+}
+
+.company-geo-select__option {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 14px;
+  border: none;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 850;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: var(--transition);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.company-geo-select__option:hover,
+.company-geo-select__option.is-active {
+  background: rgba(10, 38, 71, 0.07);
+  color: var(--primary);
+}
+
+.company-geo-select__empty {
+  min-height: 44px;
+  padding: 12px 14px;
+  border-radius: 13px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+}
+
+.company-profile-offices__add-btn {
+  width: 100%;
+  min-height: 56px;
+  border-radius: 18px;
+}
+
+@media (max-width: 1180px) {
+  .company-profile-offices__select-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .company-profile-offices__add-btn {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .company-profile-offices__select-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .company-profile-offices__add-btn {
+    grid-column: auto;
+  }
+
+  .company-geo-select__dropdown {
+    max-height: 240px;
+  }
+}

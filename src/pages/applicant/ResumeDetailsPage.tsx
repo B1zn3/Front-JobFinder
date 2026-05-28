@@ -15,10 +15,7 @@ type ApplicantProfile = {
   gender?: string | null
   phone?: string | null
   birth_date?: string | null
-  city?: {
-    id: number
-    name: string
-  } | null
+  city?: CityItem | null
   educations?: EducationItem[]
 }
 
@@ -27,9 +24,28 @@ type ProfessionItem = {
   name: string
 }
 
+type RegionItem = {
+  id: number
+  name: string
+}
+
+type DistrictItem = {
+  id: number
+  name: string
+  region_id?: number | null
+  region_name?: string | null
+}
+
 type CityItem = {
   id: number
   name: string
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
 }
 
 type SkillItem = {
@@ -426,6 +442,25 @@ const buildMonthYearDate = (month: string, year: string) => {
   return `${year}-${month}-01`
 }
 
+const getCityDisplayName = (city?: CityItem | null) => {
+  if (!city) return ''
+
+  if (city.full_name?.trim()) {
+    return city.full_name.trim()
+  }
+
+  const title = [city.settlement_type_name, city.name].filter(Boolean).join(' ')
+  const parts = [title, city.district_name, city.region_name].filter(Boolean)
+
+  return parts.join(', ')
+}
+
+const getDistrictDisplayName = (district?: DistrictItem | null) => {
+  if (!district) return ''
+
+  return district.region_name ? `${district.name}, ${district.region_name}` : district.name
+}
+
 const monthYearToNumber = (month: string, year: string) => {
   if (!month || !year) return null
 
@@ -453,9 +488,9 @@ const fetchResume = async (resumeId: number): Promise<ResumeResponse> => {
   return data
 }
 
-const fetchCatalog = async <T,>(catalogName: string): Promise<T[]> => {
+const fetchCatalog = async <T,>(catalogName: string, limit = 100): Promise<T[]> => {
   const { data } = await http.get(`/public/catalogs/${catalogName}`, {
-    params: { skip: 0, limit: 100 },
+    params: { skip: 0, limit },
   })
 
   return Array.isArray(data) ? data : []
@@ -773,6 +808,10 @@ export const ResumeDetailsPage = () => {
   const [phone, setPhone] = useState('')
   const [gender, setGender] = useState<GenderValue>('')
 
+  const [regionId, setRegionId] = useState<number | null>(null)
+  const [regionName, setRegionName] = useState('')
+  const [districtId, setDistrictId] = useState<number | null>(null)
+  const [districtName, setDistrictName] = useState('')
   const [cityId, setCityId] = useState<number | null>(null)
   const [cityName, setCityName] = useState('')
 
@@ -831,9 +870,23 @@ export const ResumeDetailsPage = () => {
     refetchOnWindowFocus: false,
   })
 
+  const regionsQuery = useQuery({
+    queryKey: ['public-regions', 'resume-details'],
+    queryFn: () => fetchCatalog<RegionItem>('regions', 100),
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const districtsQuery = useQuery({
+    queryKey: ['public-districts', 'resume-details'],
+    queryFn: () => fetchCatalog<DistrictItem>('districts', 1000),
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
   const citiesQuery = useQuery({
     queryKey: ['public-cities', 'resume-details'],
-    queryFn: () => fetchCatalog<CityItem>('cities'),
+    queryFn: () => fetchCatalog<CityItem>('cities', 1000),
     retry: false,
     refetchOnWindowFocus: false,
   })
@@ -851,6 +904,14 @@ export const ResumeDetailsPage = () => {
     retry: false,
     refetchOnWindowFocus: false,
   })
+
+  const professions = professionsQuery.data || []
+  const regions = regionsQuery.data || []
+  const districts = districtsQuery.data || []
+  const cities = citiesQuery.data || []
+  const skills = skillsQuery.data || []
+  const educationInstitutions = educationInstitutionsQuery.data || []
+  const currentResume = resumeQuery.data
 
   useEffect(() => {
     const profile = applicantQuery.data
@@ -874,10 +935,34 @@ export const ResumeDetailsPage = () => {
       setGender('')
     }
 
-    setCityId(profile.city?.id ?? null)
-    setCityName(profile.city?.name || '')
+    const profileCity = profile.city || null
+
+    if (profileCity) {
+      const fullCity = cities.find((item) => item.id === profileCity.id) || profileCity
+      const fullDistrict = districts.find((item) => item.id === fullCity.district_id)
+      const fullRegion = regions.find(
+        (item) => item.id === (fullCity.region_id ?? fullDistrict?.region_id),
+      )
+
+      setRegionId(fullCity.region_id ?? fullDistrict?.region_id ?? null)
+      setRegionName(fullCity.region_name || fullDistrict?.region_name || fullRegion?.name || '')
+
+      setDistrictId(fullCity.district_id ?? null)
+      setDistrictName(fullCity.district_name || fullDistrict?.name || '')
+
+      setCityId(fullCity.id)
+      setCityName(getCityDisplayName(fullCity))
+    } else {
+      setRegionId(null)
+      setRegionName('')
+      setDistrictId(null)
+      setDistrictName('')
+      setCityId(null)
+      setCityName('')
+    }
+
     setEducations(toArray<EducationItem>(profile.educations).map(createEducationDraft))
-  }, [applicantQuery.data])
+  }, [applicantQuery.data, cities, districts, regions])
 
   useEffect(() => {
     const resume = resumeQuery.data
@@ -890,22 +975,45 @@ export const ResumeDetailsPage = () => {
     setExperiences(toArray<WorkExperienceItem>(resume.work_experiences).map(createExperienceDraft))
   }, [resumeQuery.data])
 
-  const professions = professionsQuery.data || []
-  const cities = citiesQuery.data || []
-  const skills = skillsQuery.data || []
-  const educationInstitutions = educationInstitutionsQuery.data || []
-  const currentResume = resumeQuery.data
-
   const birthDayOptions = useMemo(() => {
     return makeDayOptions(birthYear, birthMonth)
   }, [birthMonth, birthYear])
 
-  const cityOptions: ComboOption[] = useMemo(() => {
-    return cities.map((item) => ({
+  const regionOptions: ComboOption[] = useMemo(() => {
+    return regions.map((item) => ({
       value: item.id,
       label: item.name,
     }))
-  }, [cities])
+  }, [regions])
+
+  const filteredDistricts = useMemo(() => {
+    if (!regionId) return districts
+
+    return districts.filter((item) => item.region_id === regionId)
+  }, [districts, regionId])
+
+  const districtOptions: ComboOption[] = useMemo(() => {
+    return filteredDistricts.map((item) => ({
+      value: item.id,
+      label: getDistrictDisplayName(item),
+    }))
+  }, [filteredDistricts])
+
+  const filteredCities = useMemo(() => {
+    return cities.filter((item) => {
+      const matchesRegion = !regionId || item.region_id === regionId
+      const matchesDistrict = !districtId || item.district_id === districtId
+
+      return matchesRegion && matchesDistrict
+    })
+  }, [cities, regionId, districtId])
+
+  const cityOptions: ComboOption[] = useMemo(() => {
+    return filteredCities.map((item) => ({
+      value: item.id,
+      label: getCityDisplayName(item),
+    }))
+  }, [filteredCities])
 
   const filteredProfessions: ComboOption[] = useMemo(() => {
     const value = professionSearch.trim().toLowerCase()
@@ -1707,7 +1815,66 @@ export const ResumeDetailsPage = () => {
 
                 <div className="form-grid">
                   <label className="field">
-                    <span>Город проживания</span>
+                    <span>Область</span>
+
+                    <SelectCombo
+                      value={regionName}
+                      placeholder="Выберите область"
+                      isOpen={openCombo === 'region'}
+                      options={regionOptions}
+                      activeValue={regionId}
+                      emptyText={
+                        regionsQuery.isLoading ? 'Загружаем области...' : 'Области не найдены'
+                      }
+                      onToggle={() =>
+                        setOpenCombo((prev) => (prev === 'region' ? null : 'region'))
+                      }
+                      onSelect={(option) => {
+                        setRegionId(Number(option.value))
+                        setRegionName(option.label)
+                        setDistrictId(null)
+                        setDistrictName('')
+                        setCityId(null)
+                        setCityName('')
+                        setOpenCombo(null)
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>Район</span>
+
+                    <SelectCombo
+                      value={districtName}
+                      placeholder="Выберите район"
+                      isOpen={openCombo === 'district'}
+                      options={districtOptions}
+                      activeValue={districtId}
+                      disabled={!regionId}
+                      emptyText={
+                        !regionId
+                          ? 'Сначала выберите область'
+                          : districtsQuery.isLoading
+                            ? 'Загружаем районы...'
+                            : 'Районы не найдены'
+                      }
+                      onToggle={() =>
+                        setOpenCombo((prev) => (prev === 'district' ? null : 'district'))
+                      }
+                      onSelect={(option) => {
+                        const district = districts.find((item) => item.id === Number(option.value))
+
+                        setDistrictId(Number(option.value))
+                        setDistrictName(district?.name || option.label)
+                        setCityId(null)
+                        setCityName('')
+                        setOpenCombo(null)
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>Город / населённый пункт</span>
 
                     <SelectCombo
                       value={cityName}
@@ -1715,13 +1882,28 @@ export const ResumeDetailsPage = () => {
                       isOpen={openCombo === 'city'}
                       options={cityOptions}
                       activeValue={cityId}
-                      emptyText={citiesQuery.isLoading ? 'Загружаем города...' : 'Города не найдены'}
+                      disabled={!regionId || !districtId}
+                      emptyText={
+                        !regionId
+                          ? 'Сначала выберите область'
+                          : !districtId
+                            ? 'Сначала выберите район'
+                            : citiesQuery.isLoading
+                              ? 'Загружаем города...'
+                              : 'Города не найдены'
+                      }
                       onToggle={() =>
                         setOpenCombo((prev) => (prev === 'city' ? null : 'city'))
                       }
                       onSelect={(option) => {
+                        const city = cities.find((item) => item.id === Number(option.value))
+
                         setCityId(Number(option.value))
                         setCityName(option.label)
+                        setRegionId(city?.region_id ?? regionId)
+                        setRegionName(city?.region_name || regionName)
+                        setDistrictId(city?.district_id ?? districtId)
+                        setDistrictName(city?.district_name || districtName)
                         setOpenCombo(null)
                       }}
                     />

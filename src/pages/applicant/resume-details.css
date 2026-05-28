@@ -823,3 +823,36 @@
 .field input[type='tel'] {
   letter-spacing: 0.01em;
 }
+
+/* ===== GEO SELECT FIX FOR NEW CITY LOGIC ===== */
+
+.resume-editor-page .combo__dropdown {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform: none;
+  max-height: 280px;
+}
+
+.resume-editor-page .combo__option {
+  min-height: 46px;
+  height: auto;
+  padding: 11px 14px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.resume-editor-page .combo-field__value,
+.resume-editor-page .combo-field__placeholder {
+  min-width: 0;
+}
+
+.resume-editor-page .combo-field {
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .resume-editor-page .combo__dropdown {
+    max-height: 240px;
+  }
+}

@@ -463,3 +463,26 @@
     font-size: 20px;
   }
 }
+
+/* GEO CITY FIX */
+
+.candidate-resume-hero__city {
+  display: inline-flex;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--candidate-resume-border-soft);
+  background: var(--candidate-resume-subcard);
+  color: var(--candidate-resume-primary);
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 768px) {
+  .candidate-resume-hero__city {
+    border-radius: 16px;
+  }
+}

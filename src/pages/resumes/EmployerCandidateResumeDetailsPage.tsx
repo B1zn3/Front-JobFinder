@@ -26,6 +26,18 @@ type ResumeSkill =
       name?: string | null
     }
 
+type GeoNamedEntity = {
+  id?: number | null
+  name?: string | null
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+}
+
 type WorkExperienceItem = {
   id: number
   company_name: string
@@ -56,6 +68,12 @@ type CandidateResumeDetails = {
   applicant_last_name?: string | null
   applicant_middle_name?: string | null
   applicant_city_name?: string | null
+  applicant_city_full_name?: string | null
+  applicant_region_name?: string | null
+  applicant_district_name?: string | null
+  applicant_settlement_type_name?: string | null
+  applicant_city?: GeoNamedEntity | null
+  city?: GeoNamedEntity | null
   applicant_photo?: string | null
   applicant_age?: number | null
   applicant_gender?: string | null
@@ -162,6 +180,85 @@ const normalizeSkills = (skills?: ResumeSkill[]) => {
       return skill.name || ''
     })
     .filter(Boolean)
+}
+
+const formatSettlementTitle = (
+  settlementType?: string | null,
+  cityName?: string | null,
+) => {
+  const city = cityName?.trim()
+  const type = settlementType?.trim()
+
+  if (!city) return ''
+  if (!type) return city
+
+  const normalizedType = type.toLowerCase()
+
+  if (city.toLowerCase().startsWith(`${normalizedType} `)) {
+    return city
+  }
+
+  return `${type} ${city}`
+}
+
+const buildGeoName = (city?: GeoNamedEntity | null) => {
+  if (!city) return ''
+
+  if (city.full_name?.trim()) {
+    return city.full_name.trim()
+  }
+
+  const title = formatSettlementTitle(city.settlement_type_name, city.name)
+
+  return [
+    title,
+    city.district_name,
+    city.region_name,
+  ]
+    .map((item) => item?.trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
+const getApplicantCityEntity = (resume?: CandidateResumeDetails) => {
+  return resume?.applicant_city || resume?.city || null
+}
+
+const getApplicantCityName = (resume?: CandidateResumeDetails) => {
+  if (!resume) return ''
+
+  const geoName = buildGeoName(getApplicantCityEntity(resume))
+
+  return (
+    resume.applicant_city_full_name?.trim() ||
+    geoName ||
+    resume.applicant_city_name?.trim() ||
+    ''
+  )
+}
+
+const getApplicantRegionName = (resume?: CandidateResumeDetails) => {
+  if (!resume) return ''
+
+  const city = getApplicantCityEntity(resume)
+
+  return resume.applicant_region_name?.trim() || city?.region_name?.trim() || ''
+}
+
+const getApplicantDistrictName = (resume?: CandidateResumeDetails) => {
+  if (!resume) return ''
+
+  const city = getApplicantCityEntity(resume)
+
+  return resume.applicant_district_name?.trim() || city?.district_name?.trim() || ''
+}
+
+const getApplicantSettlementTypeName = (resume?: CandidateResumeDetails) => {
+  if (!resume) return ''
+
+  const city = getApplicantCityEntity(resume)
+
+  return resume.applicant_settlement_type_name?.trim() || city?.settlement_type_name?.trim() || ''
 }
 
 const getFullName = (resume?: CandidateResumeDetails) => {
@@ -282,6 +379,10 @@ export const EmployerCandidateResumeDetailsPage = () => {
 
   const resume = resumeQuery.data
   const fullName = getFullName(resume)
+  const applicantCityName = getApplicantCityName(resume)
+  const applicantRegionName = getApplicantRegionName(resume)
+  const applicantDistrictName = getApplicantDistrictName(resume)
+  const applicantSettlementTypeName = getApplicantSettlementTypeName(resume)
 
   const skills = useMemo(() => normalizeSkills(resume?.skills), [resume?.skills])
 
@@ -396,6 +497,12 @@ export const EmployerCandidateResumeDetailsPage = () => {
                   Создано: {formatDateTime(resume.created_at)} · Обновлено:{' '}
                   {formatDateTime(resume.updated_at)}
                 </div>
+
+                {applicantCityName ? (
+                  <div className="candidate-resume-hero__city">
+                    {applicantCityName}
+                  </div>
+                ) : null}
               </div>
             </div>
           </section>
@@ -411,7 +518,13 @@ export const EmployerCandidateResumeDetailsPage = () => {
             <div className="candidate-resume-info-grid">
               <InfoItem label="ФИО" value={fullName} />
               <InfoItem label="Профессия" value={resume.profession_name || 'Не указана'} />
-              <InfoItem label="Город" value={resume.applicant_city_name || 'Не указан'} />
+              <InfoItem label="Населённый пункт" value={applicantCityName || 'Не указан'} />
+              <InfoItem label="Область" value={applicantRegionName || 'Не указана'} />
+              <InfoItem label="Район" value={applicantDistrictName || 'Не указан'} />
+              <InfoItem
+                label="Тип населённого пункта"
+                value={applicantSettlementTypeName || 'Не указан'}
+              />
               <InfoItem label="Пол" value={getGenderLabel(resume.applicant_gender)} />
               <InfoItem
                 label="Возраст"

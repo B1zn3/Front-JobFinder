@@ -8,9 +8,28 @@ import { http } from '../../shared/api/http'
 import { authSession } from '../../shared/auth/session'
 import './applicant-profile.css'
 
+type RegionItem = {
+  id: number
+  name: string
+}
+
+type DistrictItem = {
+  id: number
+  name: string
+  region_id?: number | null
+  region_name?: string | null
+}
+
 type CityItem = {
   id: number
   name: string
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
 }
 
 type ApplicantProfile = {
@@ -20,10 +39,7 @@ type ApplicantProfile = {
   middle_name?: string | null
   gender?: string | null
   birth_date?: string | null
-  city?: {
-    id: number
-    name: string
-  } | null
+  city?: CityItem | null
   photo_url?: string | null
   phone?: string | null
 }
@@ -400,6 +416,19 @@ const normalizeGender = (value?: string | null) => {
   return ''
 }
 
+const getCityDisplayName = (city?: CityItem | null) => {
+  if (!city) return ''
+
+  if (city.full_name?.trim()) {
+    return city.full_name.trim()
+  }
+
+  const title = [city.settlement_type_name, city.name].filter(Boolean).join(' ')
+  const parts = [title, city.district_name, city.region_name].filter(Boolean)
+
+  return parts.join(', ') || city.name
+}
+
 const getInitials = (firstName: string, lastName: string) => {
   const first = firstName.trim().charAt(0)
   const last = lastName.trim().charAt(0)
@@ -417,12 +446,24 @@ const fetchAuthMe = async (): Promise<AuthMeResponse> => {
   return data
 }
 
-const fetchCities = async (): Promise<CityItem[]> => {
-  const { data } = await http.get('/public/catalogs/cities', {
-    params: { skip: 0, limit: 500 },
+const fetchCatalog = async <T,>(catalogName: string, limit = 100): Promise<T[]> => {
+  const { data } = await http.get(`/public/catalogs/${catalogName}`, {
+    params: { skip: 0, limit },
   })
 
   return Array.isArray(data) ? data : []
+}
+
+const fetchRegions = async (): Promise<RegionItem[]> => {
+  return fetchCatalog<RegionItem>('regions', 100)
+}
+
+const fetchDistricts = async (): Promise<DistrictItem[]> => {
+  return fetchCatalog<DistrictItem>('districts', 1000)
+}
+
+const fetchCities = async (): Promise<CityItem[]> => {
+  return fetchCatalog<CityItem>('cities', 1000)
 }
 
 const updateApplicantProfile = async (payload: Record<string, unknown>) => {
@@ -492,6 +533,7 @@ type SelectComboProps = {
   options: ComboOption[]
   activeValue?: string | number | null
   emptyText?: string
+  disabled?: boolean
   onToggle: () => void
   onSelect: (option: ComboOption) => void
 }
@@ -503,16 +545,20 @@ const SelectCombo = ({
   options,
   activeValue,
   emptyText = 'Нет вариантов',
+  disabled = false,
   onToggle,
   onSelect,
 }: SelectComboProps) => {
   return (
-    <div className={`profile-combo ${isOpen ? 'is-open' : ''}`}>
+    <div className={`profile-combo ${isOpen ? 'is-open' : ''} ${disabled ? 'is-disabled' : ''}`}>
       <button
         type="button"
         className={`profile-combo-field ${isOpen ? 'is-open' : ''}`}
-        onClick={onToggle}
+        onClick={() => {
+          if (!disabled) onToggle()
+        }}
         aria-expanded={isOpen}
+        disabled={disabled}
       >
         <span className={value ? 'profile-combo-field__value' : 'profile-combo-field__placeholder'}>
           {value || placeholder}
@@ -521,7 +567,7 @@ const SelectCombo = ({
         <ChevronIcon open={isOpen} />
       </button>
 
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="profile-combo__dropdown">
           {options.length > 0 ? (
             options.map((option) => {
@@ -620,6 +666,10 @@ export const ApplicantProfilePage = () => {
   const [lastName, setLastName] = useState('')
   const [middleName, setMiddleName] = useState('')
   const [gender, setGender] = useState<'Мужской' | 'Женский' | ''>('')
+  const [regionId, setRegionId] = useState<number | null>(null)
+  const [regionName, setRegionName] = useState('')
+  const [districtId, setDistrictId] = useState<number | null>(null)
+  const [districtName, setDistrictName] = useState('')
   const [cityId, setCityId] = useState<number | null>(null)
   const [cityName, setCityName] = useState('')
   const [birthDay, setBirthDay] = useState('')
@@ -653,6 +703,20 @@ export const ApplicantProfilePage = () => {
   const authMeQuery = useQuery({
     queryKey: ['auth-me'],
     queryFn: fetchAuthMe,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const regionsQuery = useQuery({
+    queryKey: ['profile-regions'],
+    queryFn: fetchRegions,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const districtsQuery = useQuery({
+    queryKey: ['profile-districts'],
+    queryFn: fetchDistricts,
     retry: false,
     refetchOnWindowFocus: false,
   })
@@ -710,7 +774,7 @@ export const ApplicantProfilePage = () => {
     setMiddleName(profile.middle_name || '')
     setGender(normalizeGender(profile.gender))
     setCityId(profile.city?.id ?? null)
-    setCityName(profile.city?.name || '')
+    setCityName(getCityDisplayName(profile.city))
     setBirthDay(birth.day)
     setBirthMonth(birth.month)
     setBirthYear(birth.year)
@@ -827,17 +891,74 @@ export const ApplicantProfilePage = () => {
     },
   })
 
+  const regions = regionsQuery.data || []
+  const districts = districtsQuery.data || []
   const cities = citiesQuery.data || []
+
+  useEffect(() => {
+    if (!cityId) {
+      setRegionId(null)
+      setRegionName('')
+      setDistrictId(null)
+      setDistrictName('')
+      return
+    }
+
+    const city = cities.find((item) => item.id === cityId)
+    if (!city) return
+
+    const district = districts.find((item) => item.id === city.district_id)
+    const region = regions.find((item) => item.id === (city.region_id ?? district?.region_id))
+
+    setCityName(getCityDisplayName(city))
+    setDistrictId(city.district_id ?? null)
+    setDistrictName(city.district_name || district?.name || '')
+    setRegionId(city.region_id ?? district?.region_id ?? null)
+    setRegionName(city.region_name || district?.region_name || region?.name || '')
+  }, [cityId, cities, districts, regions])
+
+  const regionOptions: ComboOption[] = useMemo(() => {
+    return [
+      { value: '', label: 'Область не указана' },
+      ...regions.map((region) => ({
+        value: region.id,
+        label: region.name,
+      })),
+    ]
+  }, [regions])
+
+  const filteredDistricts = useMemo(() => {
+    if (!regionId) return districts
+    return districts.filter((district) => district.region_id === regionId)
+  }, [districts, regionId])
+
+  const districtOptions: ComboOption[] = useMemo(() => {
+    return [
+      { value: '', label: 'Район не указан' },
+      ...filteredDistricts.map((district) => ({
+        value: district.id,
+        label: district.region_name ? `${district.name}, ${district.region_name}` : district.name,
+      })),
+    ]
+  }, [filteredDistricts])
+
+  const filteredCities = useMemo(() => {
+    return cities.filter((city) => {
+      const matchesRegion = !regionId || city.region_id === regionId
+      const matchesDistrict = !districtId || city.district_id === districtId
+      return matchesRegion && matchesDistrict
+    })
+  }, [cities, districtId, regionId])
 
   const cityOptions: ComboOption[] = useMemo(() => {
     return [
       { value: '', label: 'Город не указан' },
-      ...cities.map((city) => ({
+      ...filteredCities.map((city) => ({
         value: city.id,
-        label: city.name,
+        label: getCityDisplayName(city),
       })),
     ]
-  }, [cities])
+  }, [filteredCities])
 
   const dayOptions = useMemo(() => {
     return makeDayOptions(birthYear, birthMonth)
@@ -884,7 +1005,6 @@ export const ApplicantProfilePage = () => {
         gender: gender === 'Мужской' ? 'м' : gender === 'Женский' ? 'ж' : null,
         birth_date: buildBirthDate(birthDay, birthMonth, birthYear),
         city_id: cityId,
-        city_name: cityId ? cityName : null,
       })
     } catch {
       // Ошибка уже обработана в onError.
@@ -1133,27 +1253,104 @@ export const ApplicantProfilePage = () => {
                   <div className="profile-field profile-field--full">
                     <span className="profile-field__label">Город проживания</span>
 
-                    <SelectCombo
-                      value={cityName}
-                      placeholder="Выберите город"
-                      isOpen={openCombo === 'city'}
-                      options={cityOptions}
-                      activeValue={cityId ?? ''}
-                      emptyText={citiesQuery.isLoading ? 'Загружаем города...' : 'Города не найдены'}
-                      onToggle={() => setOpenCombo((prev) => (prev === 'city' ? null : 'city'))}
-                      onSelect={(option) => {
-                        if (option.value === '') {
+                    <div className="profile-geo-grid">
+                      <SelectCombo
+                        value={regionName}
+                        placeholder="Выберите область"
+                        isOpen={openCombo === 'region'}
+                        options={regionOptions}
+                        activeValue={regionId ?? ''}
+                        emptyText={regionsQuery.isLoading ? 'Загружаем области...' : 'Области не найдены'}
+                        onToggle={() =>
+                          setOpenCombo((prev) => (prev === 'region' ? null : 'region'))
+                        }
+                        onSelect={(option) => {
+                          if (option.value === '') {
+                            setRegionId(null)
+                            setRegionName('')
+                          } else {
+                            setRegionId(Number(option.value))
+                            setRegionName(option.label)
+                          }
+
+                          setDistrictId(null)
+                          setDistrictName('')
                           setCityId(null)
                           setCityName('')
-                        } else {
-                          setCityId(Number(option.value))
-                          setCityName(option.label)
-                        }
+                          setProfileFieldErrors((prev) => ({ ...prev, city: '' }))
+                          setOpenCombo(null)
+                        }}
+                      />
 
-                        setProfileFieldErrors((prev) => ({ ...prev, city: '' }))
-                        setOpenCombo(null)
-                      }}
-                    />
+                      <SelectCombo
+                        value={districtName}
+                        placeholder="Выберите район"
+                        isOpen={openCombo === 'district'}
+                        options={districtOptions}
+                        activeValue={districtId ?? ''}
+                        disabled={!regionId}
+                        emptyText={
+                          !regionId
+                            ? 'Сначала выберите область'
+                            : districtsQuery.isLoading
+                              ? 'Загружаем районы...'
+                              : 'Районы не найдены'
+                        }
+                        onToggle={() =>
+                          setOpenCombo((prev) => (prev === 'district' ? null : 'district'))
+                        }
+                        onSelect={(option) => {
+                          if (option.value === '') {
+                            setDistrictId(null)
+                            setDistrictName('')
+                          } else {
+                            const selectedDistrict = districts.find(
+                              (district) => district.id === Number(option.value),
+                            )
+
+                            setDistrictId(Number(option.value))
+                            setDistrictName(selectedDistrict?.name || option.label)
+                          }
+
+                          setCityId(null)
+                          setCityName('')
+                          setProfileFieldErrors((prev) => ({ ...prev, city: '' }))
+                          setOpenCombo(null)
+                        }}
+                      />
+
+                      <SelectCombo
+                        value={cityName}
+                        placeholder="Выберите город / населённый пункт"
+                        isOpen={openCombo === 'city'}
+                        options={cityOptions}
+                        activeValue={cityId ?? ''}
+                        disabled={!regionId || !districtId}
+                        emptyText={
+                          !regionId
+                            ? 'Сначала выберите область'
+                            : !districtId
+                              ? 'Сначала выберите район'
+                              : citiesQuery.isLoading
+                                ? 'Загружаем города...'
+                                : 'Города не найдены'
+                        }
+                        onToggle={() => setOpenCombo((prev) => (prev === 'city' ? null : 'city'))}
+                        onSelect={(option) => {
+                          if (option.value === '') {
+                            setCityId(null)
+                            setCityName('')
+                          } else {
+                            const selectedCity = cities.find((city) => city.id === Number(option.value))
+                            setCityId(Number(option.value))
+                            setCityName(selectedCity ? getCityDisplayName(selectedCity) : option.label)
+                          }
+
+                          setProfileFieldErrors((prev) => ({ ...prev, city: '' }))
+                          setOpenCombo(null)
+                        }}
+                      />
+                    </div>
 
                     <FieldError message={profileFieldErrors.city} />
                   </div>

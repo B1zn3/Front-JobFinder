@@ -86,9 +86,9 @@ const pluralizeCities = (count: number) => {
   const mod10 = count % 10
   const mod100 = count % 100
 
-  if (mod10 === 1 && mod100 !== 11) return `${count} город`
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} города`
-  return `${count} городов`
+  if (mod10 === 1 && mod100 !== 11) return `${count} офис`
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} офиса`
+  return `${count} офисов`
 }
 
 const CompanyLogo = ({ src, name }: { src?: string | null; name: string }) => {
@@ -358,7 +358,7 @@ export const CompanyDetailPage = () => {
 
                     {normalizedCities.length > 0 && (
                       <div className="company-detail-info-row">
-                        <span>Города</span>
+                        <span>Офисы</span>
                         <strong title={normalizedCities.join(', ')}>
                           {pluralizeCities(normalizedCities.length)}
                         </strong>

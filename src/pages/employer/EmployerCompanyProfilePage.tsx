@@ -14,6 +14,42 @@ type VacancySummary = {
   id: number
 }
 
+type GeoRegion = {
+  id: number
+  name: string
+}
+
+type GeoDistrict = {
+  id: number
+  name: string
+  region_id?: number | null
+  region_name?: string | null
+}
+
+type GeoCity = {
+  id: number
+  name: string
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+}
+
+type CompanyCityItem = GeoCity | {
+  id: number
+  name?: string | null
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+}
+
 type CompanyProfile = {
   id: number
   name: string
@@ -24,6 +60,9 @@ type CompanyProfile = {
   employee_count?: number | null
   vacancies_count?: number | null
   vacancies?: VacancySummary[]
+  city_ids?: number[] | null
+  city_names?: string[] | null
+  cities?: CompanyCityItem[] | null
 }
 
 type AuthMeResponse = {
@@ -51,6 +90,7 @@ type CompanyFieldErrors = {
   website: string
   foundedYear: string
   employeeCount: string
+  offices: string
 }
 type PasswordInputProps = {
   value: string
@@ -103,6 +143,7 @@ const emptyCompanyFieldErrors = (): CompanyFieldErrors => ({
   website: '',
   foundedYear: '',
   employeeCount: '',
+  offices: '',
 })
 
 const fetchCompanyProfile = async (): Promise<CompanyProfile> => {
@@ -172,6 +213,41 @@ const parsePositiveInteger = (value: string) => {
   if (!Number.isSafeInteger(parsed) || parsed < 0) return undefined
 
   return parsed
+}
+
+const normalizeArrayResponse = <T,>(value: unknown): T[] => {
+  if (Array.isArray(value)) return value as T[]
+
+  if (value && typeof value === 'object') {
+    const payload = value as { items?: unknown[]; results?: unknown[]; data?: unknown[] }
+
+    if (Array.isArray(payload.items)) return payload.items as T[]
+    if (Array.isArray(payload.results)) return payload.results as T[]
+    if (Array.isArray(payload.data)) return payload.data as T[]
+  }
+
+  return []
+}
+
+const fetchCatalog = async <T,>(catalogName: string, limit = 1000): Promise<T[]> => {
+  const { data } = await http.get(`/public/catalogs/${catalogName}`, {
+    params: { skip: 0, limit },
+  })
+
+  return normalizeArrayResponse<T>(data)
+}
+
+const getCityDisplayName = (city?: Partial<GeoCity> | null) => {
+  if (!city) return ''
+
+  if (city.full_name?.trim()) return city.full_name.trim()
+
+  const settlementType = city.settlement_type_name?.trim() || ''
+  const title = [settlementType, city.name].filter(Boolean).join(' ').trim()
+
+  return [title, city.district_name, city.region_name]
+    .filter((item) => item && String(item).trim())
+    .join(', ')
 }
 
 const formatCompactNumber = (value?: number | null) => {
@@ -454,6 +530,279 @@ const SecurityModal = ({ title, subtitle, onClose, children }: SecurityModalProp
   </div>
 )
 
+type CompanyGeoSelectOption = {
+  id: number
+  name: string
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_name?: string | null
+  full_name?: string | null
+}
+
+type CompanyGeoSelectProps = {
+  label: string
+  placeholder: string
+  value: string
+  options: CompanyGeoSelectOption[]
+  openKey: string
+  openSelect: string | null
+  disabled?: boolean
+  isLoading?: boolean
+  emptyText?: string
+  getLabel?: (item: CompanyGeoSelectOption) => string
+  setOpenSelect: (value: string | null) => void
+  onChange: (value: string) => void
+}
+
+const CompanyGeoSelect = ({
+  label,
+  placeholder,
+  value,
+  options,
+  openKey,
+  openSelect,
+  disabled = false,
+  isLoading = false,
+  emptyText = 'Нет вариантов',
+  getLabel = (item) => item.name,
+  setOpenSelect,
+  onChange,
+}: CompanyGeoSelectProps) => {
+  const isDisabled = disabled || isLoading
+  const isOpen = !isDisabled && openSelect === openKey
+  const selected = options.find((item) => String(item.id) === value)
+  const selectedLabel = selected ? getLabel(selected) : ''
+
+  return (
+    <div className={`company-geo-select ${isOpen ? 'is-open' : ''} ${isDisabled ? 'is-disabled' : ''}`}>
+      <span className="company-profile-field-label">{label}</span>
+
+      <button
+        type="button"
+        className={`company-geo-select__trigger ${isOpen ? 'is-open' : ''}`}
+        disabled={isDisabled}
+        onClick={() => setOpenSelect(isOpen ? null : openKey)}
+        aria-expanded={isOpen}
+      >
+        <span className={selected ? 'is-value' : 'is-placeholder'}>
+          {isLoading ? 'Загружаем...' : selectedLabel || placeholder}
+        </span>
+
+        <svg className="company-geo-select__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M6 9L12 15L18 9"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      {isOpen ? (
+        <div className="company-geo-select__dropdown">
+          <button
+            type="button"
+            className={`company-geo-select__option ${!value ? 'is-active' : ''}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onChange('')
+              setOpenSelect(null)
+            }}
+          >
+            {placeholder}
+          </button>
+
+          {options.length > 0 ? (
+            options.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`company-geo-select__option ${String(item.id) === value ? 'is-active' : ''}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  onChange(String(item.id))
+                  setOpenSelect(null)
+                }}
+              >
+                {getLabel(item)}
+              </button>
+            ))
+          ) : (
+            <div className="company-geo-select__empty">{emptyText}</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+type CompanyOfficeSelectorProps = {
+  cities: GeoCity[]
+  regions: GeoRegion[]
+  districts: GeoDistrict[]
+  selectedCityIds: number[]
+  regionId: string
+  districtId: string
+  cityIdToAdd: string
+  openSelect: string | null
+  isCitiesLoading?: boolean
+  isRegionsLoading?: boolean
+  isDistrictsLoading?: boolean
+  error?: string
+  setOpenSelect: (value: string | null) => void
+  onRegionChange: (value: string) => void
+  onDistrictChange: (value: string) => void
+  onCityIdToAddChange: (value: string) => void
+  onAddCity: () => void
+  onRemoveCity: (cityId: number) => void
+}
+
+const CompanyOfficeSelector = ({
+  cities,
+  regions,
+  districts,
+  selectedCityIds,
+  regionId,
+  districtId,
+  cityIdToAdd,
+  openSelect,
+  isCitiesLoading,
+  isRegionsLoading,
+  isDistrictsLoading,
+  error,
+  setOpenSelect,
+  onRegionChange,
+  onDistrictChange,
+  onCityIdToAddChange,
+  onAddCity,
+  onRemoveCity,
+}: CompanyOfficeSelectorProps) => {
+  const selectedIds = new Set(selectedCityIds)
+
+  const filteredDistricts = districts.filter(
+    (district) => !regionId || String(district.region_id || '') === regionId,
+  )
+
+  const availableCities = cities
+    .filter((city) => !regionId || String(city.region_id || '') === regionId)
+    .filter((city) => !districtId || String(city.district_id || '') === districtId)
+    .filter((city) => !selectedIds.has(city.id))
+    .slice(0, 200)
+
+  const selectedCities = selectedCityIds
+    .map((id) => cities.find((city) => city.id === id))
+    .filter(Boolean) as GeoCity[]
+
+  return (
+    <section className="company-profile-offices company-profile-field--full">
+      <div className="company-profile-offices__head">
+        <div>
+          <span className="company-profile-eyebrow">Офисы компании</span>
+          <h3>Города присутствия</h3>
+          <p>Выберите населённые пункты, где есть офисы или филиалы компании.</p>
+        </div>
+
+        <strong>{selectedCityIds.length}</strong>
+      </div>
+
+      <div className="company-profile-offices__select-grid">
+        <CompanyGeoSelect
+          label="Область"
+          placeholder="Все области"
+          value={regionId}
+          options={regions}
+          openKey="office-region"
+          openSelect={openSelect}
+          isLoading={isRegionsLoading}
+          setOpenSelect={setOpenSelect}
+          onChange={(nextValue) => {
+            onRegionChange(nextValue)
+            onDistrictChange('')
+            onCityIdToAddChange('')
+          }}
+        />
+
+        <CompanyGeoSelect
+          label="Район"
+          placeholder="Все районы"
+          value={districtId}
+          options={filteredDistricts}
+          openKey="office-district"
+          openSelect={openSelect}
+          isLoading={isDistrictsLoading}
+          disabled={!regionId}
+          emptyText={regionId ? 'В выбранной области нет районов' : 'Сначала выберите область'}
+          getLabel={(district) =>
+            district.region_name ? `${district.name}, ${district.region_name}` : district.name
+          }
+          setOpenSelect={setOpenSelect}
+          onChange={(nextValue) => {
+            onDistrictChange(nextValue)
+            onCityIdToAddChange('')
+          }}
+        />
+
+        <CompanyGeoSelect
+          label="Город / населённый пункт"
+          placeholder="Выберите город"
+          value={cityIdToAdd}
+          options={availableCities}
+          openKey="office-city"
+          openSelect={openSelect}
+          isLoading={isCitiesLoading}
+          disabled={!regionId || !districtId}
+          emptyText={
+            !regionId
+              ? 'Сначала выберите область'
+              : !districtId
+                ? 'Сначала выберите район'
+                : 'В выбранном районе нет доступных городов'
+          }
+          getLabel={(city) => getCityDisplayName(city)}
+          setOpenSelect={setOpenSelect}
+          onChange={onCityIdToAddChange}
+        />
+
+        <button
+          type="button"
+          className="company-profile-btn company-profile-btn--primary company-profile-offices__add-btn"
+          onClick={onAddCity}
+          disabled={!cityIdToAdd || isCitiesLoading}
+        >
+          Добавить город
+        </button>
+      </div>
+
+      {error ? <FieldError message={error} /> : null}
+
+      {selectedCities.length > 0 ? (
+        <div className="company-profile-office-list">
+          {selectedCities.map((city) => (
+            <div key={city.id} className="company-profile-office-chip">
+              <span>{getCityDisplayName(city)}</span>
+              <button
+                type="button"
+                onClick={() => onRemoveCity(city.id)}
+                aria-label={`Удалить ${getCityDisplayName(city)}`}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="company-profile-offices__empty">
+          Города офисов пока не выбраны. Добавьте хотя бы один город, чтобы кандидаты видели географию компании.
+        </div>
+      )}
+    </section>
+  )
+}
+
 export const EmployerCompanyProfilePage = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -476,6 +825,12 @@ export const EmployerCompanyProfilePage = () => {
   const [foundedYear, setFoundedYear] = useState('')
   const [employeeCount, setEmployeeCount] = useState('')
 
+  const [selectedCityIds, setSelectedCityIds] = useState<number[]>([])
+  const [officeRegionId, setOfficeRegionId] = useState('')
+  const [officeDistrictId, setOfficeDistrictId] = useState('')
+  const [officeCityIdToAdd, setOfficeCityIdToAdd] = useState('')
+  const [openOfficeSelect, setOpenOfficeSelect] = useState<string | null>(null)
+
   const [email, setEmail] = useState('')
   const [emailDraft, setEmailDraft] = useState('')
   const [emailPassword, setEmailPassword] = useState('')
@@ -497,6 +852,27 @@ export const EmployerCompanyProfilePage = () => {
   const authMeQuery = useQuery({
     queryKey: ['auth-me'],
     queryFn: fetchAuthMe,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const regionsQuery = useQuery({
+    queryKey: ['company-profile-regions'],
+    queryFn: () => fetchCatalog<GeoRegion>('regions'),
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const districtsQuery = useQuery({
+    queryKey: ['company-profile-districts'],
+    queryFn: () => fetchCatalog<GeoDistrict>('districts'),
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const citiesQuery = useQuery({
+    queryKey: ['company-profile-cities'],
+    queryFn: () => fetchCatalog<GeoCity>('cities', 1000),
     retry: false,
     refetchOnWindowFocus: false,
   })
@@ -583,7 +959,44 @@ export const EmployerCompanyProfilePage = () => {
         ? String(profile.employee_count)
         : '',
     )
+
+    const idsFromProfile = [
+      ...(Array.isArray(profile.city_ids) ? profile.city_ids : []),
+      ...(Array.isArray(profile.cities)
+        ? profile.cities
+            .map((city) => city?.id)
+            .filter((id): id is number => typeof id === 'number')
+        : []),
+    ]
+
+    setSelectedCityIds(Array.from(new Set(idsFromProfile)))
   }, [profileQuery.data])
+
+  useEffect(() => {
+    const profile = profileQuery.data
+    const cities = citiesQuery.data || []
+
+    if (!profile || selectedCityIds.length > 0 || cities.length === 0) return
+
+    const cityNames = Array.isArray(profile.city_names) ? profile.city_names : []
+    if (!cityNames.length) return
+
+    const normalizedNames = new Set(cityNames.map((name) => name.trim().toLowerCase()))
+
+    const matchedIds = cities
+      .filter((city) => {
+        const variants = [city.name, city.full_name, getCityDisplayName(city)]
+          .filter(Boolean)
+          .map((value) => String(value).trim().toLowerCase())
+
+        return variants.some((variant) => normalizedNames.has(variant))
+      })
+      .map((city) => city.id)
+
+    if (matchedIds.length) {
+      setSelectedCityIds(Array.from(new Set(matchedIds)))
+    }
+  }, [profileQuery.data, citiesQuery.data, selectedCityIds.length])
 
   useEffect(() => {
     const me = authMeQuery.data
@@ -614,6 +1027,19 @@ export const EmployerCompanyProfilePage = () => {
     return () => document.removeEventListener('keydown', handleEscape)
   }, [])
 
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+
+      if (!target.closest('.company-geo-select')) {
+        setOpenOfficeSelect(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleDocumentClick)
+    return () => document.removeEventListener('mousedown', handleDocumentClick)
+  }, [])
+
   const vacanciesCount = useMemo(() => {
     const profile = profileQuery.data
 
@@ -631,12 +1057,13 @@ export const EmployerCompanyProfilePage = () => {
       website.trim(),
       foundedYear.trim(),
       employeeCount.trim(),
+      selectedCityIds.length ? 'offices' : '',
     ]
 
     const filled = fields.filter(Boolean).length
 
     return Math.round((filled / fields.length) * 100)
-  }, [name, description, website, foundedYear, employeeCount])
+  }, [name, description, website, foundedYear, employeeCount, selectedCityIds.length])
 
   const yearsOnMarket = useMemo(() => {
     const parsed = parsePositiveInteger(foundedYear)
@@ -650,6 +1077,16 @@ export const EmployerCompanyProfilePage = () => {
   const normalizedLogo = profileQuery.data?.logo?.trim() || ''
   const displayName = name.trim() || 'Профиль компании'
   const initials = getCompanyInitials(displayName)
+
+  const cities = citiesQuery.data || []
+  const regions = regionsQuery.data || []
+  const districts = districtsQuery.data || []
+
+  const selectedOfficeCities = useMemo(() => {
+    return selectedCityIds
+      .map((id) => cities.find((city) => city.id === id))
+      .filter(Boolean) as GeoCity[]
+  }, [selectedCityIds, cities])
 
   const validateProfile = () => {
     const nextErrors = emptyCompanyFieldErrors()
@@ -687,6 +1124,10 @@ export const EmployerCompanyProfilePage = () => {
       nextErrors.employeeCount = 'Количество сотрудников должно быть целым числом.'
     }
 
+    if (selectedCityIds.length === 0) {
+      nextErrors.offices = 'Добавьте хотя бы один город офиса компании.'
+    }
+
     setFieldErrors(nextErrors)
 
     return Object.values(nextErrors).some(Boolean)
@@ -703,7 +1144,32 @@ export const EmployerCompanyProfilePage = () => {
       logo: profileQuery.data?.logo || null,
       founded_year: parsedFoundedYear,
       employee_count: parsedEmployeeCount,
+      city_ids: selectedCityIds,
     }
+  }
+
+  const handleAddOfficeCity = () => {
+    const nextCityId = Number(officeCityIdToAdd)
+
+    if (!Number.isFinite(nextCityId) || nextCityId <= 0) return
+
+    setSelectedCityIds((prev) => {
+      if (prev.includes(nextCityId)) return prev
+      return [...prev, nextCityId]
+    })
+
+    setOfficeCityIdToAdd('')
+    setOpenOfficeSelect(null)
+    setFieldErrors((prev) => ({ ...prev, offices: '' }))
+    setNoticeError('')
+    setNoticeSuccess('')
+  }
+
+  const handleRemoveOfficeCity = (cityId: number) => {
+    setSelectedCityIds((prev) => prev.filter((id) => id !== cityId))
+    setFieldErrors((prev) => ({ ...prev, offices: '' }))
+    setNoticeError('')
+    setNoticeSuccess('')
   }
 
   const handleSaveProfile = async () => {
@@ -853,6 +1319,11 @@ export const EmployerCompanyProfilePage = () => {
                     <span>Год основания</span>
                     <strong>{yearsOnMarket !== null ? `${yearsOnMarket}` : '—'}</strong>
                   </div>
+
+                  <div className="company-profile-stat">
+                    <span>Городов офисов</span>
+                    <strong>{selectedCityIds.length}</strong>
+                  </div>
                 </div>
 
                 <button
@@ -967,6 +1438,35 @@ export const EmployerCompanyProfilePage = () => {
                     {description.trim().length}/2000 символов
                   </div>
                 </div>
+
+                <CompanyOfficeSelector
+                  cities={cities}
+                  regions={regions}
+                  districts={districts}
+                  selectedCityIds={selectedCityIds}
+                  regionId={officeRegionId}
+                  districtId={officeDistrictId}
+                  cityIdToAdd={officeCityIdToAdd}
+                  openSelect={openOfficeSelect}
+                  isCitiesLoading={citiesQuery.isLoading}
+                  isRegionsLoading={regionsQuery.isLoading}
+                  isDistrictsLoading={districtsQuery.isLoading}
+                  error={fieldErrors.offices}
+                  setOpenSelect={setOpenOfficeSelect}
+                  onRegionChange={(value) => {
+                    setOfficeRegionId(value)
+                    setNoticeError('')
+                    setNoticeSuccess('')
+                  }}
+                  onDistrictChange={(value) => {
+                    setOfficeDistrictId(value)
+                    setNoticeError('')
+                    setNoticeSuccess('')
+                  }}
+                  onCityIdToAddChange={setOfficeCityIdToAdd}
+                  onAddCity={handleAddOfficeCity}
+                  onRemoveCity={handleRemoveOfficeCity}
+                />
 
                 <div className="company-profile-form-grid company-profile-form-grid--compact">
                   <label className="company-profile-field">

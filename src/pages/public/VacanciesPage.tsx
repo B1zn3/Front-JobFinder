@@ -20,6 +20,25 @@ type NamedEntity = {
   name: string
 }
 
+type RegionItem = NamedEntity
+
+type DistrictItem = NamedEntity & {
+  region_id?: number | null
+  region_name?: string | null
+}
+
+type CityItem = NamedEntity & {
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+}
+
+type CurrencyItem = NamedEntity
+
 type Skill = {
   id: number
   name: string
@@ -34,10 +53,11 @@ type Vacancy = {
 
   company_name?: string | null
   city_name?: string | null
+  city_full_name?: string | null
   profession_name?: string | null
 
   company?: NamedEntity & { description?: string; logo?: string }
-  city?: NamedEntity
+  city?: CityItem
   profession?: NamedEntity
   employment_type?: NamedEntity | string | null
   work_schedule?: NamedEntity | string | null
@@ -64,28 +84,67 @@ const fetchVacancies = async (params: Record<string, unknown>): Promise<Vacancy[
   return Array.isArray(data) ? data : []
 }
 
-const fetchCities = async (): Promise<NamedEntity[]> => {
-  const { data } = await http.get('/public/catalogs/cities')
+const fetchRegions = async (): Promise<RegionItem[]> => {
+  const { data } = await http.get('/public/catalogs/regions', {
+    params: { skip: 0, limit: 100 },
+  })
+
+  return Array.isArray(data) ? data : []
+}
+
+const fetchDistricts = async (): Promise<DistrictItem[]> => {
+  const { data } = await http.get('/public/catalogs/districts', {
+    params: { skip: 0, limit: 1000 },
+  })
+
+  return Array.isArray(data) ? data : []
+}
+
+const fetchCities = async (): Promise<CityItem[]> => {
+  const { data } = await http.get('/public/catalogs/cities', {
+    params: { skip: 0, limit: 1000 },
+  })
+
   return Array.isArray(data) ? data : []
 }
 
 const fetchProfessions = async (): Promise<NamedEntity[]> => {
-  const { data } = await http.get('/public/catalogs/professions')
+  const { data } = await http.get('/public/catalogs/professions', {
+    params: { skip: 0, limit: 500 },
+  })
+
   return Array.isArray(data) ? data : []
 }
 
 const fetchEmploymentTypes = async (): Promise<NamedEntity[]> => {
-  const { data } = await http.get('/public/catalogs/employment-types')
+  const { data } = await http.get('/public/catalogs/employment-types', {
+    params: { skip: 0, limit: 500 },
+  })
+
   return Array.isArray(data) ? data : []
 }
 
 const fetchExperiences = async (): Promise<NamedEntity[]> => {
-  const { data } = await http.get('/public/catalogs/experiences')
+  const { data } = await http.get('/public/catalogs/experiences', {
+    params: { skip: 0, limit: 500 },
+  })
+
   return Array.isArray(data) ? data : []
 }
 
 const fetchWorkSchedules = async (): Promise<NamedEntity[]> => {
-  const { data } = await http.get('/public/catalogs/work-schedules')
+  const { data } = await http.get('/public/catalogs/work-schedules', {
+    params: { skip: 0, limit: 500 },
+  })
+
+  return Array.isArray(data) ? data : []
+}
+
+const fetchCurrencies = async (): Promise<CurrencyItem[]> => {
+  const { data } = await http.get('/public/catalogs/currencies', {
+    params: { skip: 0, limit: 100 },
+  })
+
   return Array.isArray(data) ? data : []
 }
 
@@ -111,7 +170,25 @@ const getEntityName = (value?: NamedEntity | string | null) => {
 const getSkills = (skills?: Skill[] | string[]) => {
   if (!skills?.length) return []
   if (typeof skills[0] === 'string') return skills as string[]
-  return (skills as Skill[]).map((s) => s.name)
+  return (skills as Skill[]).map((skill) => skill.name)
+}
+
+const getCityDisplayName = (city?: CityItem | null) => {
+  if (!city) return ''
+
+  if (city.full_name?.trim()) {
+    return city.full_name.trim()
+  }
+
+  const title = [city.settlement_type_name, city.name].filter(Boolean).join(' ')
+  const parts = [title, city.district_name, city.region_name].filter(Boolean)
+
+  return parts.join(', ')
+}
+
+const getDistrictDisplayName = (district?: DistrictItem | null) => {
+  if (!district) return ''
+  return district.region_name ? `${district.name}, ${district.region_name}` : district.name
 }
 
 const formatSalary = (
@@ -126,6 +203,7 @@ const formatSalary = (
     if (min === max) {
       return `${min.toLocaleString('ru-RU')} ${currency}`
     }
+
     return `${min.toLocaleString('ru-RU')} — ${max.toLocaleString('ru-RU')} ${currency}`
   }
 
@@ -148,6 +226,8 @@ type CustomSelectProps = {
   options: NamedEntity[]
   openSelect: string | null
   setOpenSelect: Dispatch<SetStateAction<string | null>>
+  disabled?: boolean
+  emptyText?: string
   onChange: (value?: number) => void
 }
 
@@ -159,10 +239,12 @@ function CustomSelect({
   options,
   openSelect,
   setOpenSelect,
+  disabled = false,
+  emptyText = 'Нет вариантов',
   onChange,
 }: CustomSelectProps) {
   const ref = useRef<HTMLDivElement | null>(null)
-  const open = openSelect === selectKey
+  const open = !disabled && openSelect === selectKey
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -172,25 +254,35 @@ function CustomSelect({
     }
 
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
   }, [selectKey, setOpenSelect])
 
   const selected = options.find((item) => item.id === value)
 
   return (
-    <div className={`custom-select ${open ? 'is-open' : ''}`} ref={ref}>
-      <label className="filter-label">{label}</label>
+    <div
+      className={`custom-select ${open ? 'is-open' : ''} ${disabled ? 'is-disabled' : ''}`}
+      ref={ref}
+    >
+      {label ? <label className="filter-label">{label}</label> : null}
 
       <button
         type="button"
         className={`custom-select__trigger ${open ? 'is-open' : ''}`}
-        onClick={() => setOpenSelect((prev) => (prev === selectKey ? null : selectKey))}
+        onClick={() => {
+          if (disabled) return
+          setOpenSelect((prev) => (prev === selectKey ? null : selectKey))
+        }}
+        disabled={disabled}
       >
         <span>{selected?.name || placeholder}</span>
         <span className="custom-select__arrow">▾</span>
       </button>
 
-      {open && (
+      {open ? (
         <div className="custom-select__dropdown">
           <button
             type="button"
@@ -203,21 +295,25 @@ function CustomSelect({
             {placeholder}
           </button>
 
-          {options.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`custom-select__option ${value === item.id ? 'is-selected' : ''}`}
-              onClick={() => {
-                onChange(item.id)
-                setOpenSelect(null)
-              }}
-            >
-              {item.name}
-            </button>
-          ))}
+          {options.length > 0 ? (
+            options.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`custom-select__option ${value === item.id ? 'is-selected' : ''}`}
+                onClick={() => {
+                  onChange(item.id)
+                  setOpenSelect(null)
+                }}
+              >
+                {item.name}
+              </button>
+            ))
+          ) : (
+            <div className="custom-select__empty">{emptyText}</div>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -232,6 +328,12 @@ export const VacanciesPage = () => {
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
 
+  const [regionId, setRegionId] = useState<number | undefined>(
+    searchParams.get('region_id') ? Number(searchParams.get('region_id')) : undefined,
+  )
+  const [districtId, setDistrictId] = useState<number | undefined>(
+    searchParams.get('district_id') ? Number(searchParams.get('district_id')) : undefined,
+  )
   const [cityId, setCityId] = useState<number | undefined>(
     searchParams.get('city_id') ? Number(searchParams.get('city_id')) : undefined,
   )
@@ -255,22 +357,40 @@ export const VacanciesPage = () => {
   const [salaryTo, setSalaryTo] = useState<number | undefined>(
     searchParams.get('salary_to') ? Number(searchParams.get('salary_to')) : undefined,
   )
+  const [currencyId, setCurrencyId] = useState<number | undefined>(
+    searchParams.get('currency_id') ? Number(searchParams.get('currency_id')) : undefined,
+  )
 
+  const regionsQuery = useQuery({ queryKey: ['regions'], queryFn: fetchRegions })
+  const districtsQuery = useQuery({ queryKey: ['districts'], queryFn: fetchDistricts })
   const citiesQuery = useQuery({ queryKey: ['cities'], queryFn: fetchCities })
   const professionsQuery = useQuery({ queryKey: ['professions'], queryFn: fetchProfessions })
+
   const employmentTypesQuery = useQuery({
     queryKey: ['employment-types'],
     queryFn: fetchEmploymentTypes,
   })
-  const experiencesQuery = useQuery({ queryKey: ['experiences'], queryFn: fetchExperiences })
+
+  const experiencesQuery = useQuery({
+    queryKey: ['experiences'],
+    queryFn: fetchExperiences,
+  })
+
   const workSchedulesQuery = useQuery({
     queryKey: ['work-schedules'],
     queryFn: fetchWorkSchedules,
   })
 
+  const currenciesQuery = useQuery({
+    queryKey: ['currencies'],
+    queryFn: fetchCurrencies,
+  })
+
   const filterParams = useMemo(
     () => ({
       search: search || undefined,
+      region_id: regionId,
+      district_id: districtId,
       city_id: cityId,
       profession_id: professionId,
       employment_type_id: employmentTypeId,
@@ -278,9 +398,12 @@ export const VacanciesPage = () => {
       work_schedule_id: workScheduleId,
       salary_from: salaryFrom,
       salary_to: salaryTo,
+      currency_id: currencyId,
     }),
     [
       search,
+      regionId,
+      districtId,
       cityId,
       professionId,
       employmentTypeId,
@@ -288,6 +411,7 @@ export const VacanciesPage = () => {
       workScheduleId,
       salaryFrom,
       salaryTo,
+      currencyId,
     ],
   )
 
@@ -319,10 +443,54 @@ export const VacanciesPage = () => {
   const filteredVacanciesCount = vacanciesCountQuery.data ?? 0
   const totalPages = Math.max(1, Math.ceil(filteredVacanciesCount / PAGE_SIZE))
 
+  const regions = regionsQuery.data || []
+  const districts = districtsQuery.data || []
+  const cities = citiesQuery.data || []
+
+  const filteredDistricts = useMemo(() => {
+    if (!regionId) return districts
+    return districts.filter((item) => item.region_id === regionId)
+  }, [districts, regionId])
+
+  const filteredCities = useMemo(() => {
+    return cities.filter((item) => {
+      const matchesRegion = !regionId || item.region_id === regionId
+      const matchesDistrict = !districtId || item.district_id === districtId
+
+      return matchesRegion && matchesDistrict
+    })
+  }, [cities, regionId, districtId])
+
+  const regionOptions = useMemo<NamedEntity[]>(() => {
+    return regions.map((item) => ({
+      id: item.id,
+      name: item.name,
+    }))
+  }, [regions])
+
+  const districtOptions = useMemo<NamedEntity[]>(() => {
+    return filteredDistricts.map((item) => ({
+      id: item.id,
+      name: getDistrictDisplayName(item),
+    }))
+  }, [filteredDistricts])
+
+  const cityOptions = useMemo<NamedEntity[]>(() => {
+    return filteredCities.map((item) => ({
+      id: item.id,
+      name: getCityDisplayName(item),
+    }))
+  }, [filteredCities])
+
+  const selectedCurrencyName =
+    currenciesQuery.data?.find((item) => item.id === currencyId)?.name || ''
+
   useEffect(() => {
     const params: Record<string, string> = {}
 
     if (search) params.search = search
+    if (regionId) params.region_id = String(regionId)
+    if (districtId) params.district_id = String(districtId)
     if (cityId) params.city_id = String(cityId)
     if (professionId) params.profession_id = String(professionId)
     if (employmentTypeId) params.employment_type_id = String(employmentTypeId)
@@ -330,11 +498,14 @@ export const VacanciesPage = () => {
     if (workScheduleId) params.work_schedule_id = String(workScheduleId)
     if (salaryFrom) params.salary_from = String(salaryFrom)
     if (salaryTo) params.salary_to = String(salaryTo)
+    if (currencyId) params.currency_id = String(currencyId)
     if (page > 1) params.page = String(page)
 
     setSearchParams(params)
   }, [
     search,
+    regionId,
+    districtId,
     cityId,
     professionId,
     employmentTypeId,
@@ -342,13 +513,39 @@ export const VacanciesPage = () => {
     workScheduleId,
     salaryFrom,
     salaryTo,
+    currencyId,
     page,
     setSearchParams,
   ])
 
+  useEffect(() => {
+    if (districtId && regionId) {
+      const district = districts.find((item) => item.id === districtId)
+
+      if (district && district.region_id !== regionId) {
+        setDistrictId(undefined)
+        setCityId(undefined)
+      }
+    }
+
+    if (cityId) {
+      const city = cities.find((item) => item.id === cityId)
+
+      if (
+        city &&
+        ((regionId && city.region_id !== regionId) ||
+          (districtId && city.district_id !== districtId))
+      ) {
+        setCityId(undefined)
+      }
+    }
+  }, [cities, districts, regionId, districtId, cityId])
+
   const activeFiltersCount = useMemo(() => {
     return [
       search,
+      regionId,
+      districtId,
       cityId,
       professionId,
       employmentTypeId,
@@ -356,9 +553,12 @@ export const VacanciesPage = () => {
       workScheduleId,
       salaryFrom,
       salaryTo,
+      currencyId,
     ].filter(Boolean).length
   }, [
     search,
+    regionId,
+    districtId,
     cityId,
     professionId,
     employmentTypeId,
@@ -366,10 +566,11 @@ export const VacanciesPage = () => {
     workScheduleId,
     salaryFrom,
     salaryTo,
+    currencyId,
   ])
 
-  const handleSearchSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     setPage(1)
     setSearch(searchInput.trim())
     setOpenSelect(null)
@@ -378,6 +579,8 @@ export const VacanciesPage = () => {
   const resetFilters = () => {
     setSearchInput('')
     setSearch('')
+    setRegionId(undefined)
+    setDistrictId(undefined)
     setCityId(undefined)
     setProfessionId(undefined)
     setEmploymentTypeId(undefined)
@@ -385,6 +588,7 @@ export const VacanciesPage = () => {
     setWorkScheduleId(undefined)
     setSalaryFrom(undefined)
     setSalaryTo(undefined)
+    setCurrencyId(undefined)
     setPage(1)
     setOpenSelect(null)
   }
@@ -393,9 +597,9 @@ export const VacanciesPage = () => {
     window.open(`/vacancies/${id}`, '_blank', 'noopener,noreferrer')
   }
 
-  const handleCardKeyDown = (e: KeyboardEvent<HTMLElement>, id: number) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>, id: number) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
       openVacancy(id)
     }
   }
@@ -425,8 +629,8 @@ export const VacanciesPage = () => {
               </h1>
 
               <p className="vacancies-hero__text">
-                Удобный каталог вакансий с фильтрами по городу, профессии, типу занятости,
-                графику работы, опыту и зарплате.
+                Удобный каталог вакансий с фильтрами по области, району, городу, профессии,
+                типу занятости, графику работы, опыту, зарплате и валюте.
               </p>
 
               <form className="vacancies-hero__search" onSubmit={handleSearchSubmit}>
@@ -435,8 +639,9 @@ export const VacanciesPage = () => {
                   type="text"
                   placeholder="Должность, компания, навык"
                   value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
+                  onChange={(event) => setSearchInput(event.target.value)}
                 />
+
                 <button className="btn btn--primary btn--large" type="submit">
                   Найти вакансии
                 </button>
@@ -454,7 +659,7 @@ export const VacanciesPage = () => {
 
                 <div className="vacancies-stat">
                   <span className="vacancies-stat__value">
-                    {formatCompactCount(citiesQuery.data?.length ?? 0)}
+                    {formatCompactCount(cities.length)}
                   </span>
                   <span className="vacancies-stat__label">городов</span>
                 </div>
@@ -482,43 +687,70 @@ export const VacanciesPage = () => {
               </div>
             </div>
 
-            {activeFiltersCount > 0 && (
+            {activeFiltersCount > 0 ? (
               <div className="active-filters">
                 <span className="active-filters__label">Фильтры:</span>
 
-                {search && <span className="active-filter-chip">Поиск: {search}</span>}
+                {search ? <span className="active-filter-chip">Поиск: {search}</span> : null}
 
-                {cityId && (
+                {regionId ? (
                   <span className="active-filter-chip">
-                    {citiesQuery.data?.find((x) => x.id === cityId)?.name}
+                    {regions.find((item) => item.id === regionId)?.name}
                   </span>
-                )}
+                ) : null}
 
-                {professionId && (
+                {districtId ? (
                   <span className="active-filter-chip">
-                    {professionsQuery.data?.find((x) => x.id === professionId)?.name}
+                    {getDistrictDisplayName(districts.find((item) => item.id === districtId))}
                   </span>
-                )}
+                ) : null}
 
-                {employmentTypeId && (
+                {cityId ? (
                   <span className="active-filter-chip">
-                    {employmentTypesQuery.data?.find((x) => x.id === employmentTypeId)?.name}
+                    {getCityDisplayName(cities.find((item) => item.id === cityId))}
                   </span>
-                )}
+                ) : null}
 
-                {experienceId && (
+                {professionId ? (
                   <span className="active-filter-chip">
-                    {experiencesQuery.data?.find((x) => x.id === experienceId)?.name}
+                    {professionsQuery.data?.find((item) => item.id === professionId)?.name}
                   </span>
-                )}
+                ) : null}
 
-                {workScheduleId && (
+                {employmentTypeId ? (
                   <span className="active-filter-chip">
-                    {workSchedulesQuery.data?.find((x) => x.id === workScheduleId)?.name}
+                    {employmentTypesQuery.data?.find((item) => item.id === employmentTypeId)?.name}
                   </span>
-                )}
+                ) : null}
+
+                {experienceId ? (
+                  <span className="active-filter-chip">
+                    {experiencesQuery.data?.find((item) => item.id === experienceId)?.name}
+                  </span>
+                ) : null}
+
+                {workScheduleId ? (
+                  <span className="active-filter-chip">
+                    {workSchedulesQuery.data?.find((item) => item.id === workScheduleId)?.name}
+                  </span>
+                ) : null}
+
+                {salaryFrom || salaryTo ? (
+                  <span className="active-filter-chip">
+                    Зарплата:{' '}
+                    {salaryFrom ? `от ${salaryFrom.toLocaleString('ru-RU')}` : ''}
+                    {salaryFrom && salaryTo ? ' ' : ''}
+                    {salaryTo ? `до ${salaryTo.toLocaleString('ru-RU')}` : ''}
+                  </span>
+                ) : null}
+
+                {currencyId ? (
+                  <span className="active-filter-chip">
+                    Валюта: {selectedCurrencyName || currencyId}
+                  </span>
+                ) : null}
               </div>
-            )}
+            ) : null}
 
             <div className="vacancies-layout">
               <aside className="vacancies-sidebar">
@@ -535,13 +767,65 @@ export const VacanciesPage = () => {
                   </div>
 
                   <CustomSelect
-                    selectKey="city"
-                    label="Город"
-                    placeholder="Все города"
-                    value={cityId}
-                    options={citiesQuery.data || []}
+                    selectKey="region"
+                    label="Область"
+                    placeholder="Все области"
+                    value={regionId}
+                    options={regionOptions}
                     openSelect={openSelect}
                     setOpenSelect={setOpenSelect}
+                    emptyText={
+                      regionsQuery.isLoading ? 'Загружаем области...' : 'Области не найдены'
+                    }
+                    onChange={(value) => {
+                      setPage(1)
+                      setRegionId(value)
+                      setDistrictId(undefined)
+                      setCityId(undefined)
+                    }}
+                  />
+
+                  <CustomSelect
+                    selectKey="district"
+                    label="Район"
+                    placeholder="Все районы"
+                    value={districtId}
+                    options={districtOptions}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
+                    disabled={!regionId}
+                    emptyText={
+                      !regionId
+                        ? 'Сначала выберите область'
+                        : districtsQuery.isLoading
+                          ? 'Загружаем районы...'
+                          : 'Районы не найдены'
+                    }
+                    onChange={(value) => {
+                      setPage(1)
+                      setDistrictId(value)
+                      setCityId(undefined)
+                    }}
+                  />
+
+                  <CustomSelect
+                    selectKey="city"
+                    label="Город / населённый пункт"
+                    placeholder="Все города"
+                    value={cityId}
+                    options={cityOptions}
+                    openSelect={openSelect}
+                    setOpenSelect={setOpenSelect}
+                    disabled={!regionId || !districtId}
+                    emptyText={
+                      !regionId
+                        ? 'Сначала выберите область'
+                        : !districtId
+                          ? 'Сначала выберите район'
+                          : citiesQuery.isLoading
+                            ? 'Загружаем города...'
+                            : 'Города не найдены'
+                    }
                     onChange={(value) => {
                       setPage(1)
                       setCityId(value)
@@ -604,59 +888,94 @@ export const VacanciesPage = () => {
                     }}
                   />
 
-                  <div className="filter-group">
-                    <label className="filter-label">Зарплата</label>
-                    <div className="salary-range">
-                      <input
-                        type="number"
-                        className="filter-control"
-                        placeholder="от"
-                        value={salaryFrom ?? ''}
-                        onChange={(e) => {
-                          setPage(1)
-                          setSalaryFrom(e.target.value ? Number(e.target.value) : undefined)
-                        }}
-                      />
+                  <div className="filter-group filter-group--salary">
+  <label className="filter-label">Зарплата</label>
 
-                      <input
-                        type="number"
-                        className="filter-control"
-                        placeholder="до"
-                        value={salaryTo ?? ''}
-                        onChange={(e) => {
-                          setPage(1)
-                          setSalaryTo(e.target.value ? Number(e.target.value) : undefined)
-                        }}
-                      />
-                    </div>
-                  </div>
+  <div className="salary-filter">
+    <div className="salary-filter__amounts">
+      <label className="salary-filter__field">
+        <span>от</span>
+        <input
+          type="number"
+          inputMode="numeric"
+          placeholder=""
+          value={salaryFrom ?? ''}
+          onChange={(event) => {
+            setPage(1)
+            setSalaryFrom(event.target.value ? Number(event.target.value) : undefined)
+          }}
+        />
+      </label>
+
+      <label className="salary-filter__field">
+        <span>до</span>
+        <input
+          type="number"
+          inputMode="numeric"
+          placeholder=""
+          value={salaryTo ?? ''}
+          onChange={(event) => {
+            setPage(1)
+            setSalaryTo(event.target.value ? Number(event.target.value) : undefined)
+          }}
+        />
+      </label>
+    </div>
+
+    <div className="salary-filter__currency">
+      <CustomSelect
+        selectKey="currency"
+        label=""
+        placeholder="Любая валюта"
+        value={currencyId}
+        options={currenciesQuery.data || []}
+        openSelect={openSelect}
+        setOpenSelect={setOpenSelect}
+        emptyText={
+          currenciesQuery.isLoading
+            ? 'Загружаем валюты...'
+            : 'Валюты не найдены'
+        }
+        onChange={(value) => {
+          setPage(1)
+          setCurrencyId(value)
+        }}
+      />
+    </div>
+  </div>
+</div>
                 </div>
               </aside>
 
               <div className="vacancies-content">
-                {vacanciesQuery.isLoading && (
+                {vacanciesQuery.isLoading ? (
                   <div className="vacancies-grid">
-                    {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-                      <div key={i} className="vacancy-card vacancy-card--skeleton" />
+                    {Array.from({ length: PAGE_SIZE }).map((_, index) => (
+                      <div key={index} className="vacancy-card vacancy-card--skeleton" />
                     ))}
                   </div>
-                )}
+                ) : null}
 
-                {vacanciesQuery.isSuccess && vacanciesQuery.data?.length === 0 && (
+                {vacanciesQuery.isSuccess && vacanciesQuery.data?.length === 0 ? (
                   <div className="vacancies-empty">
                     <h3>Ничего не найдено</h3>
                     <p>Попробуй изменить фильтры или сбросить параметры поиска.</p>
+
                     <button type="button" className="btn btn--outline" onClick={resetFilters}>
                       Сбросить фильтры
                     </button>
                   </div>
-                )}
+                ) : null}
 
-                {vacanciesQuery.isSuccess && vacanciesQuery.data?.length > 0 && (
+                {vacanciesQuery.isSuccess && vacanciesQuery.data?.length > 0 ? (
                   <>
                     <div className="vacancies-grid">
                       {vacanciesQuery.data.map((vacancy) => {
-                        const city = vacancy.city?.name || vacancy.city_name
+                        const city =
+                          getCityDisplayName(vacancy.city) ||
+                          vacancy.city_full_name ||
+                          vacancy.city_name
+
                         const profession = vacancy.profession?.name || vacancy.profession_name
                         const company = vacancy.company?.name || vacancy.company_name
                         const employmentType = getEntityName(vacancy.employment_type)
@@ -670,13 +989,14 @@ export const VacanciesPage = () => {
                             key={vacancy.id}
                             className="vacancy-card"
                             onClick={() => openVacancy(vacancy.id)}
-                            onKeyDown={(e) => handleCardKeyDown(e, vacancy.id)}
+                            onKeyDown={(event) => handleCardKeyDown(event, vacancy.id)}
                             role="button"
                             tabIndex={0}
                           >
                             <div className="vacancy-card__top">
                               <div className="vacancy-card__main">
                                 <h3 className="vacancy-card__title">{vacancy.title}</h3>
+
                                 <div className="vacancy-card__company">
                                   {company || 'Компания не указана'}
                                 </div>
@@ -688,26 +1008,30 @@ export const VacanciesPage = () => {
                             </div>
 
                             <div className="vacancy-card__meta">
-                              {city && <span className="vacancy-pill">{city}</span>}
-                              {profession && <span className="vacancy-pill">{profession}</span>}
-                              {employmentType && (
+                              {city ? <span className="vacancy-pill">{city}</span> : null}
+                              {profession ? (
+                                <span className="vacancy-pill">{profession}</span>
+                              ) : null}
+                              {employmentType ? (
                                 <span className="vacancy-pill">{employmentType}</span>
-                              )}
-                              {workSchedule && (
+                              ) : null}
+                              {workSchedule ? (
                                 <span className="vacancy-pill">{workSchedule}</span>
-                              )}
-                              {experience && <span className="vacancy-pill">{experience}</span>}
+                              ) : null}
+                              {experience ? (
+                                <span className="vacancy-pill">{experience}</span>
+                              ) : null}
                             </div>
 
-                            {vacancy.description && (
+                            {vacancy.description ? (
                               <p className="vacancy-card__description">
                                 {vacancy.description.length > 150
                                   ? `${vacancy.description.slice(0, 150)}...`
                                   : vacancy.description}
                               </p>
-                            )}
+                            ) : null}
 
-                            {skills.length > 0 && (
+                            {skills.length > 0 ? (
                               <div className="vacancy-card__skills">
                                 {skills.slice(0, 6).map((skill) => (
                                   <span className="skill-tag" key={skill}>
@@ -715,7 +1039,7 @@ export const VacanciesPage = () => {
                                   </span>
                                 ))}
                               </div>
-                            )}
+                            ) : null}
 
                             <div className="vacancy-card__bottom">
                               <span className="vacancy-card__link">Подробнее о вакансии</span>
@@ -723,8 +1047,8 @@ export const VacanciesPage = () => {
                               <button
                                 type="button"
                                 className="btn btn--primary"
-                                onClick={(e) => {
-                                  e.stopPropagation()
+                                onClick={(event) => {
+                                  event.stopPropagation()
                                   openVacancy(vacancy.id)
                                 }}
                               >
@@ -736,7 +1060,7 @@ export const VacanciesPage = () => {
                       })}
                     </div>
 
-                    {totalPages > 1 && (
+                    {totalPages > 1 ? (
                       <div className="vacancies-pagination">
                         <button
                           type="button"
@@ -775,9 +1099,9 @@ export const VacanciesPage = () => {
                           Вперёд
                         </button>
                       </div>
-                    )}
+                    ) : null}
                   </>
-                )}
+                ) : null}
               </div>
             </div>
           </div>

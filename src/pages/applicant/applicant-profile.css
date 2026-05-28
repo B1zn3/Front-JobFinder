@@ -714,3 +714,45 @@
     border-radius: 14px;
   }
 }
+/* ===== GEO PROFILE FIX ===== */
+.profile-geo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+.profile-combo.is-disabled {
+  opacity: 0.62;
+}
+
+.profile-combo.is-disabled .profile-combo-field {
+  cursor: not-allowed;
+  background: #f3f6fa;
+}
+
+.profile-combo-field:disabled {
+  cursor: not-allowed;
+}
+
+.profile-combo__option {
+  min-height: 44px;
+  height: auto;
+  padding: 10px 14px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.profile-combo__dropdown {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
+@media (max-width: 768px) {
+  .profile-geo-grid {
+    grid-template-columns: 1fr;
+  }
+}

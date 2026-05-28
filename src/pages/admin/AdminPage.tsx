@@ -19,6 +19,9 @@ type TabKey =
   | 'applications'
 
 type CatalogKey =
+  | 'regions'
+  | 'districts'
+  | 'settlement-types'
   | 'cities'
   | 'professions'
   | 'skills'
@@ -48,6 +51,22 @@ type SalaryFilter = 'all' | 'with-salary' | 'no-salary'
 type CatalogItem = {
   id: number
   name: string
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+  full_name?: string | null
+}
+
+type CatalogDeleteConflict = {
+  requires_confirmation?: boolean
+  catalog_name?: string
+  item_id?: number
+  item_name?: string
+  usages?: Record<string, number>
+  message?: string
 }
 
 type AuthMeResponse = {
@@ -232,7 +251,10 @@ const defaultPages: PageState = {
 }
 
 const catalogDefinitions: Array<{ key: CatalogKey; label: string }> = [
+  { key: 'regions', label: 'Области' },
+  { key: 'districts', label: 'Районы' },
   { key: 'cities', label: 'Города' },
+  { key: 'settlement-types', label: 'Типы населённых пунктов' },
   { key: 'professions', label: 'Профессии' },
   { key: 'skills', label: 'Навыки' },
   { key: 'work-schedules', label: 'Графики работы' },
@@ -425,6 +447,26 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback
 }
 
+
+const getCatalogDeleteConflict = (error: unknown): CatalogDeleteConflict | null => {
+  if (!axios.isAxiosError(error)) return null
+  if (error.response?.status !== 409) return null
+
+  const detail = error.response.data?.detail
+
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) {
+    return null
+  }
+
+  const conflict = detail as CatalogDeleteConflict
+
+  if (!conflict.requires_confirmation) {
+    return null
+  }
+
+  return conflict
+}
+
 const getEmailError = (value: string) => {
   const email = value.trim()
   if (!email) return 'Введите почту.'
@@ -582,6 +624,13 @@ const fetchCatalog = async (name: string): Promise<CatalogItem[]> => {
   return toArray<Record<string, unknown>>(data).map((item) => ({
     id: safeNumber(item.id) ?? 0,
     name: safeString(item.name) || 'Без названия',
+    region_id: safeNumber(item.region_id),
+    region_name: safeString(item.region_name) || null,
+    district_id: safeNumber(item.district_id),
+    district_name: safeString(item.district_name) || null,
+    settlement_type_id: safeNumber(item.settlement_type_id),
+    settlement_type_name: safeString(item.settlement_type_name) || null,
+    full_name: safeString(item.full_name) || null,
   }))
 }
 
@@ -690,6 +739,37 @@ const statusFilterMatches = (isActive: boolean, filter: CommonStatusFilter) => {
 const uniqueStrings = (values: Array<string | null | undefined>) => {
   return Array.from(new Set(values.map((item) => safeString(item).trim()).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b, 'ru'),
+  )
+}
+
+const getCatalogDisplayName = (item: CatalogItem) => item.full_name || item.name
+
+const getCatalogMeta = (item: CatalogItem, catalog: CatalogKey) => {
+  if (catalog === 'districts') {
+    return item.region_name ? `Область: ${item.region_name}` : 'Область не указана'
+  }
+
+  if (catalog === 'cities') {
+    const parts = [
+      item.settlement_type_name ? `Тип: ${item.settlement_type_name}` : null,
+      item.district_name ? `Район: ${item.district_name}` : null,
+      item.region_name ? `Область: ${item.region_name}` : null,
+    ].filter(Boolean)
+
+    return parts.length ? parts.join(' • ') : 'Район не указан'
+  }
+
+  return null
+}
+
+const getCatalogSearchText = (item: CatalogItem) => {
+  return toSearchValue(
+    item.id,
+    item.name,
+    item.full_name,
+    item.region_name,
+    item.district_name,
+    item.settlement_type_name,
   )
 }
 
@@ -1115,7 +1195,18 @@ export const AdminPage = () => {
   const [newCatalogName, setNewCatalogName] = useState('')
   const [editingCatalogId, setEditingCatalogId] = useState<number | null>(null)
   const [editingCatalogName, setEditingCatalogName] = useState('')
+  const [newCatalogRegionId, setNewCatalogRegionId] = useState('')
+  const [newCatalogDistrictId, setNewCatalogDistrictId] = useState('')
+  const [newCatalogSettlementTypeId, setNewCatalogSettlementTypeId] = useState('')
+  const [editingCatalogRegionId, setEditingCatalogRegionId] = useState('')
+  const [editingCatalogDistrictId, setEditingCatalogDistrictId] = useState('')
+  const [editingCatalogSettlementTypeId, setEditingCatalogSettlementTypeId] = useState('')
   const [message, setMessage] = useState('Управляйте платформой централизованно.')
+  const [pendingCatalogDelete, setPendingCatalogDelete] = useState<{
+    item: CatalogItem
+    catalog: CatalogKey
+    conflict?: CatalogDeleteConflict
+  } | null>(null)
   const [search, setSearch] = useState('')
   const [catalogSearch, setCatalogSearch] = useState('')
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null)
@@ -1180,6 +1271,9 @@ export const AdminPage = () => {
     refetchOnWindowFocus: false,
   })
   const selectedCatalogQuery = useQuery({ queryKey: ['admin-catalog', selectedCatalog], queryFn: () => fetchCatalog(selectedCatalog), retry: false, refetchOnWindowFocus: false })
+  const regionsCatalogQuery = useQuery({ queryKey: ['admin-catalog-options', 'regions'], queryFn: () => fetchCatalog('regions'), retry: false, refetchOnWindowFocus: false })
+  const districtsCatalogQuery = useQuery({ queryKey: ['admin-catalog-options', 'districts'], queryFn: () => fetchCatalog('districts'), retry: false, refetchOnWindowFocus: false })
+  const settlementTypesCatalogQuery = useQuery({ queryKey: ['admin-catalog-options', 'settlement-types'], queryFn: () => fetchCatalog('settlement-types'), retry: false, refetchOnWindowFocus: false })
 
   const userDetailQuery = useQuery({ queryKey: ['admin-user-detail', detailTarget?.kind === 'user' ? detailTarget.id : null], queryFn: () => fetchUserDetail((detailTarget as { kind: 'user'; id: number }).id), enabled: detailTarget?.kind === 'user', retry: false, refetchOnWindowFocus: false })
   const companyDetailQuery = useQuery({ queryKey: ['admin-company-detail', detailTarget?.kind === 'company' ? detailTarget.id : null], queryFn: () => fetchCompanyDetail((detailTarget as { kind: 'company'; id: number }).id), enabled: detailTarget?.kind === 'company', retry: false, refetchOnWindowFocus: false })
@@ -1214,9 +1308,97 @@ export const AdminPage = () => {
   const toggleApplicantMutation = useMutation({ mutationFn: async (applicant: ApplicantAdmin) => { await http.patch(`/admin/applicants/${applicant.id}/status`, { is_active: !applicant.is_active }) }, onSuccess: async () => { setMessage('Статус соискателя обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-applicants'] }); await invalidateDashboard() }, onError: (error) => setHandledError(error, 'Не удалось обновить статус соискателя.') })
   const updateVacancyStatusMutation = useMutation({ mutationFn: async (params: { vacancyId: number; statusId: number }) => { await http.patch(`/admin/vacancies/${params.vacancyId}/status`, { status_id: params.statusId }) }, onSuccess: async () => { setMessage('Статус вакансии обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-vacancies'] }); await invalidateDashboard() }, onError: (error) => setHandledError(error, 'Не удалось обновить статус вакансии.') })
   const updateApplicationStatusMutation = useMutation({ mutationFn: async (params: { vacancyId: number; resumeId: number; status: string }) => { await http.patch(`/admin/applications/${params.vacancyId}/${params.resumeId}`, { status: params.status }) }, onSuccess: async () => { setMessage('Статус отклика обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-applications'] }); await invalidateDashboard() }, onError: (error) => setHandledError(error, 'Не удалось обновить статус отклика.') })
-  const createCatalogItemMutation = useMutation({ mutationFn: async () => { await http.post(`/admin/catalogs/${selectedCatalog}`, { name: newCatalogName.trim() }) }, onSuccess: async () => { setNewCatalogName(''); setMessage('Элемент справочника создан.'); await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] }) }, onError: (error) => setHandledError(error, 'Не удалось создать элемент справочника.') })
-  const updateCatalogItemMutation = useMutation({ mutationFn: async (itemId: number) => { await http.put(`/admin/catalogs/${selectedCatalog}/${itemId}`, { name: editingCatalogName.trim() }) }, onSuccess: async () => { setEditingCatalogId(null); setEditingCatalogName(''); setMessage('Элемент справочника обновлён.'); await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] }) }, onError: (error) => setHandledError(error, 'Не удалось обновить элемент справочника.') })
-  const deleteCatalogItemMutation = useMutation({ mutationFn: async (itemId: number) => { await http.delete(`/admin/catalogs/${selectedCatalog}/${itemId}`) }, onSuccess: async () => { setMessage('Элемент справочника удалён.'); await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] }) }, onError: (error) => setHandledError(error, 'Не удалось удалить элемент справочника. Возможно, он уже используется.') })
+
+  const resetCatalogDrafts = () => {
+    setNewCatalogName('')
+    setNewCatalogRegionId('')
+    setNewCatalogDistrictId('')
+    setNewCatalogSettlementTypeId('')
+    setEditingCatalogId(null)
+    setEditingCatalogName('')
+    setEditingCatalogRegionId('')
+    setEditingCatalogDistrictId('')
+    setEditingCatalogSettlementTypeId('')
+  }
+
+  const buildCreateCatalogPayload = () => {
+    const payload: Record<string, unknown> = { name: newCatalogName.trim() }
+
+    if (selectedCatalog === 'districts') payload.region_id = safeNumber(newCatalogRegionId)
+    if (selectedCatalog === 'cities') {
+      payload.district_id = safeNumber(newCatalogDistrictId)
+      payload.settlement_type_id = safeNumber(newCatalogSettlementTypeId)
+    }
+
+    return payload
+  }
+
+  const buildUpdateCatalogPayload = () => {
+    const payload: Record<string, unknown> = { name: editingCatalogName.trim() }
+
+    if (selectedCatalog === 'districts') payload.region_id = safeNumber(editingCatalogRegionId)
+    if (selectedCatalog === 'cities') {
+      payload.district_id = safeNumber(editingCatalogDistrictId)
+      payload.settlement_type_id = safeNumber(editingCatalogSettlementTypeId)
+    }
+
+    return payload
+  }
+
+  const invalidateCatalogsAfterMutation = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['admin-catalog', selectedCatalog] })
+    await queryClient.invalidateQueries({ queryKey: ['admin-catalog-options'] })
+    await queryClient.invalidateQueries({ queryKey: ['admin-companies'] })
+    await queryClient.invalidateQueries({ queryKey: ['admin-applicants'] })
+    await queryClient.invalidateQueries({ queryKey: ['admin-vacancies'] })
+    await queryClient.invalidateQueries({ queryKey: ['admin-applications'] })
+    await invalidateDashboard()
+  }
+
+  const canSubmitCreateCatalog = () => {
+    if (!newCatalogName.trim()) return false
+    if (selectedCatalog === 'districts' && !newCatalogRegionId) return false
+    if (selectedCatalog === 'cities' && !newCatalogDistrictId) return false
+    return true
+  }
+
+  const canSubmitUpdateCatalog = () => {
+    if (!editingCatalogName.trim()) return false
+    if (selectedCatalog === 'districts' && !editingCatalogRegionId) return false
+    if (selectedCatalog === 'cities' && !editingCatalogDistrictId) return false
+    return true
+  }
+
+  const createCatalogItemMutation = useMutation({ mutationFn: async () => { await http.post(`/admin/catalogs/${selectedCatalog}`, buildCreateCatalogPayload()) }, onSuccess: async () => { resetCatalogDrafts(); setMessage('Элемент справочника создан.'); await invalidateCatalogsAfterMutation() }, onError: (error) => setHandledError(error, 'Не удалось создать элемент справочника.') })
+  const updateCatalogItemMutation = useMutation({ mutationFn: async (itemId: number) => { await http.put(`/admin/catalogs/${selectedCatalog}/${itemId}`, buildUpdateCatalogPayload()) }, onSuccess: async () => { resetCatalogDrafts(); setMessage('Элемент справочника обновлён.'); await invalidateCatalogsAfterMutation() }, onError: (error) => setHandledError(error, 'Не удалось обновить элемент справочника.') })
+  const deleteCatalogItemMutation = useMutation({
+    mutationFn: async (params: { item: CatalogItem; catalog: CatalogKey; force?: boolean }) => {
+      await http.delete(`/admin/catalogs/${params.catalog}/${params.item.id}`, {
+        params: params.force ? { force: true } : undefined,
+      })
+    },
+    onSuccess: async () => {
+      setPendingCatalogDelete(null)
+      setMessage('Элемент справочника удалён.')
+      await invalidateCatalogsAfterMutation()
+    },
+    onError: (error, params) => {
+      const conflict = getCatalogDeleteConflict(error)
+
+      if (conflict) {
+        setPendingCatalogDelete({
+          item: params.item,
+          catalog: params.catalog,
+          conflict,
+        })
+        setFormError('')
+        setMessage('Удаление требует подтверждения.')
+        return
+      }
+
+      setHandledError(error, 'Не удалось удалить элемент справочника.')
+    },
+  })
   const createAdminMutation = useMutation({
     mutationFn: async () => {
       await http.post('/admin/admins', { email: newAdminEmail.trim(), password: newAdminPassword })
@@ -1443,7 +1625,7 @@ export const AdminPage = () => {
     const value = catalogSearch.trim().toLowerCase()
     const items = selectedCatalogQuery.data || []
     if (!value) return items
-    return items.filter((item) => item.name.toLowerCase().includes(value) || String(item.id).includes(value))
+    return items.filter((item) => getCatalogSearchText(item).includes(value))
   }, [catalogSearch, selectedCatalogQuery.data])
 
   const filteredAdmins = useMemo(() => {
@@ -2002,9 +2184,285 @@ const renderVacancyDetailContent = () => {
   )
 
   const renderCatalogs = () => {
-    const items = getPageItems(filteredCatalogItems, pages.catalogs)
-    return <div className="admin-panel"><div className="admin-card"><div className="admin-card__header admin-card__header--stacked"><div><h3>Справочники</h3><p>Выберите справочник, найдите нужный элемент или добавьте новый.</p></div><div className="admin-catalog-layout"><aside className="admin-catalog-menu"><div className="admin-catalog-menu__title">Тип справочника</div>{catalogDefinitions.map((item) => <button key={item.key} type="button" className={selectedCatalog === item.key ? 'is-active' : ''} onClick={() => { setSelectedCatalog(item.key); setEditingCatalogId(null); setEditingCatalogName(''); setCatalogSearch(''); resetPage('catalogs') }}><span>{item.label}</span></button>)}</aside><div className="admin-catalog-content"><div className="admin-catalog-content__header"><div><span>Текущий справочник</span><strong>{selectedCatalogLabel}</strong></div><div className="admin-catalog-count">{filteredCatalogItems.length} элементов</div></div><div className="admin-catalog-tools"><SearchBox value={catalogSearch} onChange={(value) => { setCatalogSearch(value); resetPage('catalogs') }} placeholder={`Поиск: ${selectedCatalogLabel}`} /><div className="admin-catalog-create"><input value={newCatalogName} onChange={(event) => setNewCatalogName(event.target.value)} placeholder="Название нового элемента" /><button type="button" className="admin-primary-btn" onClick={() => createCatalogItemMutation.mutate()} disabled={createCatalogItemMutation.isPending || !newCatalogName.trim()}>Добавить</button></div></div><div className="admin-stack">{items.map((item) => <div key={item.id} className="admin-list-row">{editingCatalogId === item.id ? <><input className="admin-input admin-input--compact" value={editingCatalogName} onChange={(event) => setEditingCatalogName(event.target.value)} /><div className="admin-actions-row"><button type="button" className="admin-primary-btn" onClick={() => updateCatalogItemMutation.mutate(item.id)} disabled={updateCatalogItemMutation.isPending || !editingCatalogName.trim()}>Сохранить</button><button type="button" className="admin-ghost-btn" onClick={() => { setEditingCatalogId(null); setEditingCatalogName('') }}>Отмена</button></div></> : <><div><strong>{item.name}</strong><p>ID: {item.id}</p></div><div className="admin-actions-row"><button type="button" className="admin-action-btn" onClick={() => { setEditingCatalogId(item.id); setEditingCatalogName(item.name) }}>Редактировать</button><button type="button" className="admin-danger-btn" onClick={() => deleteCatalogItemMutation.mutate(item.id)} disabled={deleteCatalogItemMutation.isPending}>Удалить</button></div></>}</div>)}{filteredCatalogItems.length === 0 ? <div className="admin-empty-inline">Элементы не найдены</div> : null}</div><Pagination page={pages.catalogs} total={filteredCatalogItems.length} pageSize={PAGE_SIZE} onChange={(page) => setPage('catalogs', page)} /></div></div></div></div></div>
+  const items = getPageItems(filteredCatalogItems, pages.catalogs)
+  const regions = regionsCatalogQuery.data || []
+  const districts = districtsCatalogQuery.data || []
+  const settlementTypes = settlementTypesCatalogQuery.data || []
+  const selectedCatalogDefinition = catalogDefinitions.find((item) => item.key === selectedCatalog)
+
+  const createCatalogClassName = [
+    'admin-catalog-create',
+    selectedCatalog === 'districts' ? 'admin-catalog-create--districts' : '',
+    selectedCatalog === 'cities' ? 'admin-catalog-create--cities' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const getEditFieldsClassName = () => {
+    return [
+      'admin-catalog-edit-fields',
+      selectedCatalog === 'districts' ? 'admin-catalog-edit-fields--districts' : '',
+      selectedCatalog === 'cities' ? 'admin-catalog-edit-fields--cities' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
   }
+
+  const openCatalogEdit = (item: CatalogItem) => {
+    setEditingCatalogId(item.id)
+    setEditingCatalogName(item.name)
+    setEditingCatalogRegionId(item.region_id ? String(item.region_id) : '')
+    setEditingCatalogDistrictId(item.district_id ? String(item.district_id) : '')
+    setEditingCatalogSettlementTypeId(item.settlement_type_id ? String(item.settlement_type_id) : '')
+  }
+
+  const renderCatalogParentFields = (mode: 'create' | 'edit') => {
+    const isEdit = mode === 'edit'
+
+    const regionId = isEdit ? editingCatalogRegionId : newCatalogRegionId
+    const districtId = isEdit ? editingCatalogDistrictId : newCatalogDistrictId
+    const settlementTypeId = isEdit ? editingCatalogSettlementTypeId : newCatalogSettlementTypeId
+
+    const setRegionId = isEdit ? setEditingCatalogRegionId : setNewCatalogRegionId
+    const setDistrictId = isEdit ? setEditingCatalogDistrictId : setNewCatalogDistrictId
+    const setSettlementTypeId = isEdit ? setEditingCatalogSettlementTypeId : setNewCatalogSettlementTypeId
+
+    if (selectedCatalog === 'districts') {
+      return (
+        <select
+          className="admin-select"
+          value={regionId}
+          onChange={(event) => setRegionId(event.target.value)}
+        >
+          <option value="">Выберите область</option>
+          {regions.map((region) => (
+            <option key={region.id} value={region.id}>
+              {region.name}
+            </option>
+          ))}
+        </select>
+      )
+    }
+
+    if (selectedCatalog === 'cities') {
+      return (
+        <>
+          <select
+            className="admin-select"
+            value={districtId}
+            onChange={(event) => setDistrictId(event.target.value)}
+          >
+            <option value="">Выберите район</option>
+            {districts.map((district) => (
+              <option key={district.id} value={district.id}>
+                {district.region_name ? `${district.name} — ${district.region_name}` : district.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="admin-select"
+            value={settlementTypeId}
+            onChange={(event) => setSettlementTypeId(event.target.value)}
+          >
+            <option value="">Выберите тип</option>
+            {settlementTypes.map((settlementType) => (
+              <option key={settlementType.id} value={settlementType.id}>
+                {settlementType.name}
+              </option>
+            ))}
+          </select>
+        </>
+      )
+    }
+
+    return null
+  }
+
+  return (
+    <div className="admin-panel">
+      <div className="admin-card">
+        <div className="admin-card__header admin-card__header--stacked">
+          <div>
+            <h3>Справочники</h3>
+            <p>Выберите справочник, найдите нужный элемент или добавьте новый.</p>
+          </div>
+
+          <div className="admin-catalog-layout">
+            <aside className="admin-catalog-menu">
+              <div className="admin-catalog-menu__title">Тип справочника</div>
+
+              {catalogDefinitions.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={selectedCatalog === item.key ? 'is-active' : ''}
+                  onClick={() => {
+                    setSelectedCatalog(item.key)
+                    resetCatalogDrafts()
+                    setCatalogSearch('')
+                    resetPage('catalogs')
+                  }}
+                >
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </aside>
+
+            <div className="admin-catalog-content">
+              <div className="admin-catalog-content__header">
+                <div>
+                  <span>Текущий справочник</span>
+                  <strong>{selectedCatalogDefinition?.label || selectedCatalogLabel}</strong>
+                </div>
+
+                <div className="admin-catalog-count">
+                  {filteredCatalogItems.length} элементов
+                </div>
+              </div>
+
+              <div className="admin-catalog-tools">
+                <SearchBox
+                  value={catalogSearch}
+                  onChange={(value) => {
+                    setCatalogSearch(value)
+                    resetPage('catalogs')
+                  }}
+                  placeholder={`Поиск: ${selectedCatalogLabel}`}
+                />
+
+                <div className={createCatalogClassName}>
+                  <input
+                    value={newCatalogName}
+                    onChange={(event) => setNewCatalogName(event.target.value)}
+                    placeholder={
+                      selectedCatalog === 'cities'
+                        ? 'Название города'
+                        : selectedCatalog === 'districts'
+                          ? 'Название района'
+                          : 'Название нового элемента'
+                    }
+                  />
+
+                  {renderCatalogParentFields('create')}
+
+                  <button
+                    type="button"
+                    className="admin-primary-btn"
+                    onClick={() => createCatalogItemMutation.mutate()}
+                    disabled={createCatalogItemMutation.isPending || !canSubmitCreateCatalog()}
+                  >
+                    Добавить
+                  </button>
+                </div>
+              </div>
+
+              <div className="admin-stack">
+                {items.map((item) => {
+                  const meta = getCatalogMeta(item, selectedCatalog)
+
+                  return (
+                    <div key={item.id} className="admin-list-row">
+                      {editingCatalogId === item.id ? (
+                        <>
+                          <div className={getEditFieldsClassName()}>
+                            <input
+                              className="admin-input"
+                              value={editingCatalogName}
+                              onChange={(event) => setEditingCatalogName(event.target.value)}
+                              placeholder={
+                                selectedCatalog === 'cities'
+                                  ? 'Название города'
+                                  : selectedCatalog === 'districts'
+                                    ? 'Название района'
+                                    : 'Название элемента'
+                              }
+                            />
+
+                            {renderCatalogParentFields('edit')}
+                          </div>
+
+                          <div className="admin-actions-row">
+                            <button
+                              type="button"
+                              className="admin-primary-btn"
+                              onClick={() => updateCatalogItemMutation.mutate(item.id)}
+                              disabled={updateCatalogItemMutation.isPending || !canSubmitUpdateCatalog()}
+                            >
+                              Сохранить
+                            </button>
+
+                            <button
+                              type="button"
+                              className="admin-ghost-btn"
+                              onClick={resetCatalogDrafts}
+                            >
+                              Отмена
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <strong>{getCatalogDisplayName(item)}</strong>
+                            <p>ID: {item.id}{meta ? ` • ${meta}` : ''}</p>
+                          </div>
+
+                          <div className="admin-actions-row">
+                            <button
+                              type="button"
+                              className="admin-action-btn"
+                              onClick={() => openCatalogEdit(item)}
+                            >
+                              Редактировать
+                            </button>
+
+                            <button
+                              type="button"
+                              className="admin-danger-btn"
+                              onClick={() =>
+                                deleteCatalogItemMutation.mutate({
+                                  item,
+                                  catalog: selectedCatalog,
+                                })
+                              }
+                              disabled={deleteCatalogItemMutation.isPending}
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {!selectedCatalogQuery.isLoading && !items.length && (
+                  <div className="admin-empty-inline">
+                    Ничего не найдено.
+                  </div>
+                )}
+
+                {selectedCatalogQuery.isLoading && (
+                  <div className="admin-empty-inline">
+                    Загрузка справочника...
+                  </div>
+                )}
+              </div>
+
+              <Pagination
+                page={pages.catalogs}
+                total={filteredCatalogItems.length}
+                pageSize={PAGE_SIZE}
+                onChange={(page) => setPage('catalogs', page)}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
   const renderAdmins = () => {
     const items = getPageItems(filteredAdmins, pages.admins)
@@ -2355,6 +2813,76 @@ const renderVacancyDetailContent = () => {
             >
               {deleteAdminMutation.isPending ? 'Удаляем...' : 'Удалить'}
             </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {pendingCatalogDelete?.conflict ? (
+        <Modal
+          title="Подтвердите удаление"
+          subtitle="Элемент справочника используется в связанных данных."
+          onClose={() => {
+            if (!deleteCatalogItemMutation.isPending) {
+              setPendingCatalogDelete(null)
+            }
+          }}
+        >
+          <div className="admin-delete-confirm">
+            <div className="admin-delete-confirm__warning">
+              Вы хотите удалить элемент справочника{' '}
+              <strong>
+                «{pendingCatalogDelete.conflict.item_name || getCatalogDisplayName(pendingCatalogDelete.item)}»
+              </strong>
+              . Он используется в системе. При подтверждении связанные данные будут удалены или отвязаны.
+            </div>
+
+            {pendingCatalogDelete.conflict.usages ? (
+              <div className="admin-delete-confirm__list">
+                {Object.entries(pendingCatalogDelete.conflict.usages).map(([name, count]) => (
+                  <div key={name} className="admin-delete-confirm__item">
+                    <span>{name}</span>
+                    <strong>{count}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {pendingCatalogDelete.conflict.message ? (
+              <div className="admin-delete-confirm__note">
+                {pendingCatalogDelete.conflict.message}
+              </div>
+            ) : null}
+
+            <div className="admin-delete-confirm__danger">
+              Действие необратимо. При удалении связанных справочников могут быть удалены города,
+              вакансии, отклики, чаты, избранные вакансии и связи компаний. У соискателей город будет очищен.
+            </div>
+
+            <div className="admin-modal__footer">
+              <button
+                type="button"
+                className="admin-ghost-btn"
+                onClick={() => setPendingCatalogDelete(null)}
+                disabled={deleteCatalogItemMutation.isPending}
+              >
+                Отмена
+              </button>
+
+              <button
+                type="button"
+                className="admin-danger-btn"
+                onClick={() =>
+                  deleteCatalogItemMutation.mutate({
+                    item: pendingCatalogDelete.item,
+                    catalog: pendingCatalogDelete.catalog,
+                    force: true,
+                  })
+                }
+                disabled={deleteCatalogItemMutation.isPending}
+              >
+                {deleteCatalogItemMutation.isPending ? 'Удаляем...' : 'Удалить всё связанное'}
+              </button>
+            </div>
           </div>
         </Modal>
       ) : null}

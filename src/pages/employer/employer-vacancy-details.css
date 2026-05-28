@@ -880,3 +880,29 @@
     border-radius: 16px;
   }
 }
+
+/* ===== GEO EDIT FIX: region → district → city ===== */
+
+.employer-vacancy-combo__option {
+  min-height: 46px;
+  height: auto;
+  padding: 11px 14px;
+  align-items: flex-start;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.employer-vacancy-combo__dropdown {
+  max-height: 320px;
+}
+
+.employer-vacancy-combo__value {
+  line-height: 1.35;
+}
+
+@media (min-width: 769px) {
+  .employer-vacancy-field--full .employer-vacancy-combo__dropdown {
+    max-height: 360px;
+  }
+}

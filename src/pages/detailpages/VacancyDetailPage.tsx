@@ -17,6 +17,18 @@ type VacancyListItem = {
   currency?: string | null
 }
 
+type GeoCity = {
+  id: number
+  name: string
+  full_name?: string | null
+  region_id?: number | null
+  region_name?: string | null
+  district_id?: number | null
+  district_name?: string | null
+  settlement_type_id?: number | null
+  settlement_type_name?: string | null
+}
+
 type VacancyDetail = {
   id: number
   title: string
@@ -26,6 +38,8 @@ type VacancyDetail = {
   company_id?: number | null
   company_name: string
   city_name: string
+  city_full_name?: string | null
+  city?: GeoCity | null
   profession_name: string
   employment_type: string
   work_schedule: string
@@ -38,6 +52,7 @@ type VacancyDetail = {
   company_founded_year?: number | null
   company_employee_count?: number | null
   company_city_names?: string[] | null
+  company_cities?: string[] | GeoCity[] | null
 }
 
 type CompanyDetail = {
@@ -49,7 +64,7 @@ type CompanyDetail = {
   founded_year?: number | null
   employee_count?: number | null
   city_names?: string[] | null
-  cities?: Array<{ id: number; name: string }> | null
+  cities?: GeoCity[] | null
 }
 
 type ResumeItem = {
@@ -288,6 +303,31 @@ const formatEmployeeCount = (value?: number | null) => {
   return formatCompactCount(num)
 }
 
+const getCityDisplayName = (city?: GeoCity | null) => {
+  if (!city) return ''
+
+  if (city.full_name?.trim()) {
+    return city.full_name.trim()
+  }
+
+  const title = [city.settlement_type_name, city.name].filter(Boolean).join(' ').trim()
+  const parts = [title || city.name, city.district_name, city.region_name]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+
+  return parts.join(', ')
+}
+
+const normalizeOfficeName = (office: string | GeoCity | null | undefined) => {
+  if (!office) return ''
+
+  if (typeof office === 'string') {
+    return office.trim()
+  }
+
+  return getCityDisplayName(office).trim()
+}
+
 const formatDate = (value?: string | null) => {
   if (!value) return ''
 
@@ -379,10 +419,7 @@ const translateApiMessage = (message: string, status?: number) => {
     return 'Вы уже откликались на эту вакансию.'
   }
 
-  if (
-    lower.includes('favorite') ||
-    lower.includes('избран')
-  ) {
+  if (lower.includes('favorite') || lower.includes('избран')) {
     return 'Не удалось изменить избранное.'
   }
 
@@ -729,7 +766,9 @@ export const VacancyDetailPage = () => {
           duplicateApplication,
         )
 
-        await queryClient.invalidateQueries({ queryKey: ['applicant-current-application', vacancyId] })
+        await queryClient.invalidateQueries({
+          queryKey: ['applicant-current-application', vacancyId],
+        })
       }
     },
   })
@@ -817,11 +856,16 @@ export const VacancyDetailPage = () => {
   }, [company, vacancy])
 
   const companyOfficeNames = useMemo(() => {
-    const names =
-      company?.city_names ??
-      company?.cities?.map((city) => city.name) ??
-      vacancy?.company_city_names ??
-      []
+    const vacancyCompanyCities = Array.isArray(vacancy?.company_cities)
+      ? vacancy.company_cities
+      : []
+
+    const names = [
+      ...(company?.city_names || []),
+      ...((company?.cities || []).map(normalizeOfficeName)),
+      ...(vacancy?.company_city_names || []),
+      ...vacancyCompanyCities.map((item) => normalizeOfficeName(item as string | GeoCity)),
+    ]
 
     return Array.from(
       new Set(
@@ -832,11 +876,13 @@ export const VacancyDetailPage = () => {
     )
   }, [company, vacancy])
 
-  const visibleCompanyOfficeNames = companyOfficeNames.slice(0, 4)
-  const hiddenCompanyOfficeCount = Math.max(
-    companyOfficeNames.length - visibleCompanyOfficeNames.length,
-    0,
-  )
+  const mainCompanyOfficeName = companyOfficeNames[0] || ''
+  const hiddenCompanyOfficeCount = Math.max(companyOfficeNames.length - 1, 0)
+  const companyOfficeLabel = mainCompanyOfficeName
+    ? `${mainCompanyOfficeName}${hiddenCompanyOfficeCount > 0 ? ', и др.' : ''}`
+    : 'Не указан'
+
+  const vacancyCityName = getCityDisplayName(vacancy?.city) || vacancy?.city_full_name || vacancy?.city_name || ''
 
   useEffect(() => {
     setLocalApplication(null)
@@ -1160,7 +1206,7 @@ export const VacancyDetailPage = () => {
                     <div className="vacancy-detail-hero__company">{vacancy.company_name}</div>
                   )}
 
-                  <div className="vacancy-detail-hero__location">{vacancy.city_name}</div>
+                  <div className="vacancy-detail-hero__location">{vacancyCityName}</div>
                 </div>
 
                 <div className="vacancy-detail-hero__salary-box">
@@ -1296,106 +1342,98 @@ export const VacancyDetailPage = () => {
               </section>
 
               <aside className="vacancy-detail-sidebar">
-                <section className="vacancy-detail-card vacancy-company-card">
-                  {companyId ? (
-                    <Link
-                      to={companyHref}
-                      className="vacancy-company-card__head vacancy-company-card__head--link"
-                    >
-                      {companyInfo.logo ? (
-                        <img
-                          src={companyInfo.logo}
-                          alt={companyInfo.name}
-                          className="vacancy-company-card__logo"
-                        />
-                      ) : (
-                        <div className="vacancy-company-card__logo vacancy-company-card__logo--placeholder">
-                          {companyInfo.name.slice(0, 1).toUpperCase()}
-                        </div>
-                      )}
+  <section className="vacancy-detail-card vacancy-company-card">
+    {companyId ? (
+      <Link
+        to={companyHref}
+        className="vacancy-company-card__head vacancy-company-card__head-link"
+        aria-label={`Открыть карточку компании ${companyInfo.name}`}
+      >
+        {companyInfo.logo ? (
+          <img
+            src={companyInfo.logo}
+            alt={companyInfo.name}
+            className="vacancy-company-card__logo"
+          />
+        ) : (
+          <div className="vacancy-company-card__logo vacancy-company-card__logo--placeholder">
+            {companyInfo.name.slice(0, 1).toUpperCase()}
+          </div>
+        )}
 
-                      <div className="vacancy-company-card__head-text">
-                        <h3>{companyInfo.name}</h3>
-                        <p>Открыть карточку компании</p>
-                      </div>
-                    </Link>
-                  ) : (
-                    <div className="vacancy-company-card__head">
-                      {companyInfo.logo ? (
-                        <img
-                          src={companyInfo.logo}
-                          alt={companyInfo.name}
-                          className="vacancy-company-card__logo"
-                        />
-                      ) : (
-                        <div className="vacancy-company-card__logo vacancy-company-card__logo--placeholder">
-                          {companyInfo.name.slice(0, 1).toUpperCase()}
-                        </div>
-                      )}
+        <div className="vacancy-company-card__head-text">
+          <h3>{companyInfo.name}</h3>
+          <p>Информация о компании</p>
+        </div>
+      </Link>
+    ) : (
+      <div className="vacancy-company-card__head">
+        {companyInfo.logo ? (
+          <img
+            src={companyInfo.logo}
+            alt={companyInfo.name}
+            className="vacancy-company-card__logo"
+          />
+        ) : (
+          <div className="vacancy-company-card__logo vacancy-company-card__logo--placeholder">
+            {companyInfo.name.slice(0, 1).toUpperCase()}
+          </div>
+        )}
 
-                      <div className="vacancy-company-card__head-text">
-                        <h3>{companyInfo.name}</h3>
-                        <p>Информация о компании</p>
-                      </div>
-                    </div>
-                  )}
+        <div className="vacancy-company-card__head-text">
+          <h3>{companyInfo.name}</h3>
+          <p>Информация о компании</p>
+        </div>
+      </div>
+    )}
 
-                  {companyInfo.description ? (
-                    <p className="vacancy-company-card__description">{companyInfo.description}</p>
-                  ) : null}
+    {companyInfo.description ? (
+      <p className="vacancy-company-card__description">
+        {companyInfo.description}
+      </p>
+    ) : null}
 
-                  {companyOfficeNames.length > 0 ? (
-                    <div className="vacancy-company-card__offices-block">
-                      <div className="vacancy-company-card__offices-title">Города присутствия</div>
+    <div className="vacancy-company-card__offices-block">
+      <div className="vacancy-company-card__offices-title">
+        Офис компании
+      </div>
 
-                      <div className="vacancy-company-card__offices">
-                        {visibleCompanyOfficeNames.map((cityName) => (
-                          <span key={cityName} className="vacancy-company-card__office-chip">
-                            {cityName}
-                          </span>
-                        ))}
+      <div
+        className="vacancy-company-card__office-main"
+        title={companyOfficeNames.length > 0 ? companyOfficeNames.join(', ') : ''}
+      >
+        {companyOfficeLabel}
+      </div>
+    </div>
 
-                        {hiddenCompanyOfficeCount > 0 ? (
-                          <span className="vacancy-company-card__office-chip vacancy-company-card__office-chip--more">
-                            +{hiddenCompanyOfficeCount}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
+    <ul className="vacancy-company-card__list">
+      <li>
+        <span>Год основания</span>
+        <strong>{companyInfo.foundedYear || 'Не указано'}</strong>
+      </li>
 
-                  <ul className="vacancy-company-card__list">
-                    {companyInfo.foundedYear ? (
-                      <li>
-                        <span>Год основания</span>
-                        <strong>{companyInfo.foundedYear}</strong>
-                      </li>
-                    ) : null}
+      <li>
+        <span>Сотрудников</span>
+        <strong>{formatEmployeeCount(companyInfo.employeeCount)}</strong>
+      </li>
 
-                    {companyInfo.employeeCount ? (
-                      <li>
-                        <span>Сотрудников</span>
-                        <strong>{formatEmployeeCount(companyInfo.employeeCount)}</strong>
-                      </li>
-                    ) : null}
+      {companyInfo.website ? (
+        <li>
+          <span>Сайт</span>
+          <a href={companyInfo.website} target="_blank" rel="noreferrer">
+            Перейти
+          </a>
+        </li>
+      ) : null}
+    </ul>
 
-                    {companyInfo.website ? (
-                      <li>
-                        <span>Сайт</span>
-                        <a href={companyInfo.website} target="_blank" rel="noreferrer">
-                          Перейти
-                        </a>
-                      </li>
-                    ) : null}
-                  </ul>
-
-                  {companyId ? (
-                    <Link to={companyHref} className="vacancy-company-card__open-link">
-                      Перейти к компании
-                    </Link>
-                  ) : null}
-                </section>
-              </aside>
+    {companyId ? (
+      <Link to={companyHref} className="vacancy-company-card__open-link">
+        Открыть карточку компании
+      </Link>
+    ) : null}
+  </section>
+</aside>
             </div>
           </div>
         </section>
