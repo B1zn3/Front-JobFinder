@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import './applicant.css'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Header } from '../../shared/ui/Header'
 import { Footer } from '../../shared/ui/Footer'
 import { http } from '../../shared/api/http'
-import './applicant.css'
+
 
 type ApplicantProfile = {
   id: number
@@ -166,10 +167,6 @@ export const ApplicantPage = () => {
                       <span className="applicant-card__eyebrow">Мои резюме</span>
 
                       <h1 className="applicant-card__title">Мои резюме</h1>
-
-                      <p className="applicant-card__subtitle">
-                        Создавайте и обновляйте резюме, чтобы работодатели быстрее находили вас.
-                      </p>
                     </div>
 
                     <button

@@ -161,7 +161,7 @@ export const Header = () => {
     <header className="header">
       <div className="container header__inner">
         <div className="header__topline">
-          <NavLink to="/employer/vacancies" className="header__logo" onClick={closeMenu}>
+          <NavLink to="/" className="header__logo" onClick={closeMenu}>
             JobFinder
           </NavLink>
 

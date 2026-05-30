@@ -1,5 +1,5 @@
 import type { AxiosError } from 'axios'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Header } from '../../shared/ui/Header'
@@ -38,17 +38,19 @@ type GeoCity = {
   settlement_type_name?: string | null
 }
 
-type CompanyCityItem = GeoCity | {
-  id: number
-  name?: string | null
-  full_name?: string | null
-  region_id?: number | null
-  region_name?: string | null
-  district_id?: number | null
-  district_name?: string | null
-  settlement_type_id?: number | null
-  settlement_type_name?: string | null
-}
+type CompanyCityItem =
+  | GeoCity
+  | {
+      id: number
+      name?: string | null
+      full_name?: string | null
+      region_id?: number | null
+      region_name?: string | null
+      district_id?: number | null
+      district_name?: string | null
+      settlement_type_id?: number | null
+      settlement_type_name?: string | null
+    }
 
 type CompanyProfile = {
   id: number
@@ -92,6 +94,7 @@ type CompanyFieldErrors = {
   employeeCount: string
   offices: string
 }
+
 type PasswordInputProps = {
   value: string
   placeholder: string
@@ -99,41 +102,7 @@ type PasswordInputProps = {
   onChange: (value: string) => void
 }
 
-const PasswordInput = ({
-  value,
-  placeholder,
-  autoComplete,
-  onChange,
-}: PasswordInputProps) => {
-  const [isVisible, setIsVisible] = useState(false)
-
-  return (
-    <div className="company-password-input">
-      <input
-        type={isVisible ? 'text' : 'password'}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-      />
-
-      <button
-        type="button"
-        className="company-password-input__toggle"
-        onClick={() => setIsVisible((prev) => !prev)}
-        aria-label={isVisible ? 'Скрыть пароль' : 'Показать пароль'}
-      >
-        <img
-          src={isVisible ? hidePasswordIcon : showPasswordIcon}
-          alt=""
-          aria-hidden="true"
-        />
-      </button>
-    </div>
-  )
-}
 const currentYear = new Date().getFullYear()
-
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i
 const specialRegex = /[^A-Za-zА-Яа-я0-9]/
 
@@ -156,11 +125,27 @@ const fetchAuthMe = async (): Promise<AuthMeResponse> => {
   return data
 }
 
-const updateCompanyProfile = async (payload: Record<string, unknown>) => {
+const updateCompanyProfile = async (payload: Record<string, unknown>): Promise<CompanyProfile> => {
   const { data } = await http.put('/companies/me', payload)
   return data
 }
 
+const uploadCompanyLogo = async (file: File): Promise<CompanyProfile> => {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const { data } = await http.post('/companies/me/logo', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+
+  return data
+}
+const deleteCompanyLogo = async (): Promise<CompanyProfile> => {
+  const { data } = await http.delete('/companies/me/logo')
+  return data
+}
 const updateSensitiveCredentials = async (payload: {
   email: string
   phone: string | null
@@ -180,13 +165,8 @@ const changePassword = async (payload: {
 
 const normalizeUrl = (value: string) => {
   const trimmed = value.trim()
-
   if (!trimmed) return ''
-
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return trimmed
-  }
-
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
   return `https://${trimmed}`
 }
 
@@ -203,13 +183,10 @@ const isValidUrl = (value: string) => {
 
 const parsePositiveInteger = (value: string) => {
   const trimmed = value.trim()
-
   if (!trimmed) return null
-
   if (!/^\d+$/.test(trimmed)) return undefined
 
   const parsed = Number(trimmed)
-
   if (!Number.isSafeInteger(parsed) || parsed < 0) return undefined
 
   return parsed
@@ -229,7 +206,7 @@ const normalizeArrayResponse = <T,>(value: unknown): T[] => {
   return []
 }
 
-const fetchCatalog = async <T,>(catalogName: string, limit = 1000): Promise<T[]> => {
+const fetchCatalog = async <T,>(catalogName: string, limit = 100): Promise<T[]> => {
   const { data } = await http.get(`/public/catalogs/${catalogName}`, {
     params: { skip: 0, limit },
   })
@@ -239,7 +216,6 @@ const fetchCatalog = async <T,>(catalogName: string, limit = 1000): Promise<T[]>
 
 const getCityDisplayName = (city?: Partial<GeoCity> | null) => {
   if (!city) return ''
-
   if (city.full_name?.trim()) return city.full_name.trim()
 
   const settlementType = city.settlement_type_name?.trim() || ''
@@ -252,7 +228,6 @@ const getCityDisplayName = (city?: Partial<GeoCity> | null) => {
 
 const formatCompactNumber = (value?: number | null) => {
   if (value === null || value === undefined) return '—'
-
   if (value < 1000) return String(value)
 
   if (value < 1_000_000) {
@@ -266,7 +241,6 @@ const formatCompactNumber = (value?: number | null) => {
 
 const getCompanyInitials = (name: string) => {
   const normalized = name.trim()
-
   if (!normalized) return 'C'
 
   return normalized
@@ -331,9 +305,18 @@ const translateApiErrorMessage = (message: string, status?: number) => {
     return 'Проверьте количество сотрудников.'
   }
 
-  if (lower.includes('field required')) {
-    return 'Заполните обязательные поля.'
+  if (
+    lower.includes('file') ||
+    lower.includes('image') ||
+    lower.includes('logo') ||
+    lower.includes('файл') ||
+    lower.includes('изображ') ||
+    lower.includes('логотип')
+  ) {
+    return message || 'Проверьте файл логотипа.'
   }
+
+  if (lower.includes('field required')) return 'Заполните обязательные поля.'
 
   if (lower.includes('string should have at least')) {
     const count = message.match(/(\d+)/)?.[1]
@@ -434,29 +417,12 @@ const validatePasswordValue = (value: string) => {
     return errors
   }
 
-  if (/\s/.test(value)) {
-    errors.push('Пароль не должен содержать пробелы.')
-  }
-
-  if (value.length < 8) {
-    errors.push('Пароль должен содержать минимум 8 символов.')
-  }
-
-  if (!/[a-zа-я]/.test(value)) {
-    errors.push('Пароль должен содержать хотя бы одну строчную букву.')
-  }
-
-  if (!/[A-ZА-Я]/.test(value)) {
-    errors.push('Пароль должен содержать хотя бы одну заглавную букву.')
-  }
-
-  if (!/\d/.test(value)) {
-    errors.push('Пароль должен содержать хотя бы одну цифру.')
-  }
-
-  if (!specialRegex.test(value)) {
-    errors.push('Пароль должен содержать хотя бы один специальный символ.')
-  }
+  if (/\s/.test(value)) errors.push('Пароль не должен содержать пробелы.')
+  if (value.length < 8) errors.push('Пароль должен содержать минимум 8 символов.')
+  if (!/[a-zа-я]/.test(value)) errors.push('Пароль должен содержать хотя бы одну строчную букву.')
+  if (!/[A-ZА-Я]/.test(value)) errors.push('Пароль должен содержать хотя бы одну заглавную букву.')
+  if (!/\d/.test(value)) errors.push('Пароль должен содержать хотя бы одну цифру.')
+  if (!specialRegex.test(value)) errors.push('Пароль должен содержать хотя бы один специальный символ.')
 
   return errors
 }
@@ -474,6 +440,36 @@ const PasswordErrors = ({ errors }: { errors: string[] }) => {
       {errors.map((error) => (
         <p key={error}>{error}</p>
       ))}
+    </div>
+  )
+}
+
+const PasswordInput = ({
+  value,
+  placeholder,
+  autoComplete,
+  onChange,
+}: PasswordInputProps) => {
+  const [isVisible, setIsVisible] = useState(false)
+
+  return (
+    <div className="company-password-input">
+      <input
+        type={isVisible ? 'text' : 'password'}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+      />
+
+      <button
+        type="button"
+        className="company-password-input__toggle"
+        onClick={() => setIsVisible((prev) => !prev)}
+        aria-label={isVisible ? 'Скрыть пароль' : 'Показать пароль'}
+      >
+        <img src={isVisible ? hidePasswordIcon : showPasswordIcon} alt="" aria-hidden="true" />
+      </button>
     </div>
   )
 }
@@ -504,11 +500,28 @@ type SecurityModalProps = {
   subtitle?: string
   onClose: () => void
   children: ReactNode
+  className?: string
+  closeDisabled?: boolean
 }
 
-const SecurityModal = ({ title, subtitle, onClose, children }: SecurityModalProps) => (
-  <div className="company-profile-modal-overlay" onClick={onClose}>
-    <div className="company-profile-modal" onClick={(event) => event.stopPropagation()}>
+const SecurityModal = ({
+  title,
+  subtitle,
+  onClose,
+  children,
+  className = '',
+  closeDisabled = false,
+}: SecurityModalProps) => (
+  <div
+    className="company-profile-modal-overlay"
+    onClick={() => {
+      if (!closeDisabled) onClose()
+    }}
+  >
+    <div
+      className={`company-profile-modal ${className}`.trim()}
+      onClick={(event) => event.stopPropagation()}
+    >
       <div className="company-profile-modal__header">
         <div>
           <h2>{title}</h2>
@@ -516,13 +529,14 @@ const SecurityModal = ({ title, subtitle, onClose, children }: SecurityModalProp
         </div>
 
         <button
-  type="button"
-  className="company-profile-modal__close"
-  onClick={onClose}
-  aria-label="Закрыть"
->
-  <span>×</span>
-</button>
+          type="button"
+          className="company-profile-modal__close"
+          onClick={onClose}
+          disabled={closeDisabled}
+          aria-label="Закрыть"
+        >
+          <span>×</span>
+        </button>
       </div>
 
       {children}
@@ -670,9 +684,9 @@ const CompanyOfficeSelector = ({
   districtId,
   cityIdToAdd,
   openSelect,
-  isCitiesLoading,
-  isRegionsLoading,
-  isDistrictsLoading,
+  isCitiesLoading = false,
+  isRegionsLoading = false,
+  isDistrictsLoading = false,
   error,
   setOpenSelect,
   onRegionChange,
@@ -681,46 +695,53 @@ const CompanyOfficeSelector = ({
   onAddCity,
   onRemoveCity,
 }: CompanyOfficeSelectorProps) => {
-  const selectedIds = new Set(selectedCityIds)
+  const selectedCities = useMemo(() => {
+    return selectedCityIds
+      .map((cityId) => cities.find((city) => city.id === cityId))
+      .filter(Boolean) as GeoCity[]
+  }, [cities, selectedCityIds])
 
-  const filteredDistricts = districts.filter(
-    (district) => !regionId || String(district.region_id || '') === regionId,
-  )
+  const filteredDistricts = useMemo(() => {
+    if (!regionId) return districts
+    return districts.filter((district) => String(district.region_id) === regionId)
+  }, [districts, regionId])
 
-  const availableCities = cities
-    .filter((city) => !regionId || String(city.region_id || '') === regionId)
-    .filter((city) => !districtId || String(city.district_id || '') === districtId)
-    .filter((city) => !selectedIds.has(city.id))
-    .slice(0, 200)
+  const filteredCities = useMemo(() => {
+    return cities.filter((city) => {
+      const matchesRegion = !regionId || String(city.region_id) === regionId
+      const matchesDistrict = !districtId || String(city.district_id) === districtId
+      const notSelected = !selectedCityIds.includes(city.id)
 
-  const selectedCities = selectedCityIds
-    .map((id) => cities.find((city) => city.id === id))
-    .filter(Boolean) as GeoCity[]
+      return matchesRegion && matchesDistrict && notSelected
+    })
+  }, [cities, regionId, districtId, selectedCityIds])
 
   return (
-    <section className="company-profile-offices company-profile-field--full">
+    <section className="company-profile-offices">
       <div className="company-profile-offices__head">
         <div>
-          <span className="company-profile-eyebrow">Офисы компании</span>
-          <h3>Города присутствия</h3>
-          <p>Выберите населённые пункты, где есть офисы или филиалы компании.</p>
+          <h3>Офисы</h3>
+          <p>Выберите города, где у компании есть офисы или рабочие точки.</p>
         </div>
 
-        <strong>{selectedCityIds.length}</strong>
+        <span>{selectedCityIds.length} выбрано</span>
       </div>
 
-      <div className="company-profile-offices__select-grid">
+      {error ? <FieldError message={error} /> : null}
+
+      <div className="company-profile-office-controls">
         <CompanyGeoSelect
           label="Область"
-          placeholder="Все области"
+          placeholder="Выберите область"
           value={regionId}
           options={regions}
           openKey="office-region"
           openSelect={openSelect}
-          isLoading={isRegionsLoading}
           setOpenSelect={setOpenSelect}
-          onChange={(nextValue) => {
-            onRegionChange(nextValue)
+          isLoading={isRegionsLoading}
+          emptyText="Области не найдены"
+          onChange={(value) => {
+            onRegionChange(value)
             onDistrictChange('')
             onCityIdToAddChange('')
           }}
@@ -728,62 +749,55 @@ const CompanyOfficeSelector = ({
 
         <CompanyGeoSelect
           label="Район"
-          placeholder="Все районы"
+          placeholder={regionId ? 'Выберите район' : 'Сначала область'}
           value={districtId}
           options={filteredDistricts}
           openKey="office-district"
           openSelect={openSelect}
-          isLoading={isDistrictsLoading}
+          setOpenSelect={setOpenSelect}
           disabled={!regionId}
-          emptyText={regionId ? 'В выбранной области нет районов' : 'Сначала выберите область'}
+          isLoading={isDistrictsLoading}
+          emptyText="Районы не найдены"
           getLabel={(district) =>
             district.region_name ? `${district.name}, ${district.region_name}` : district.name
           }
-          setOpenSelect={setOpenSelect}
-          onChange={(nextValue) => {
-            onDistrictChange(nextValue)
+          onChange={(value) => {
+            onDistrictChange(value)
             onCityIdToAddChange('')
           }}
         />
 
         <CompanyGeoSelect
           label="Город / населённый пункт"
-          placeholder="Выберите город"
+          placeholder={districtId ? 'Выберите город' : 'Сначала район'}
           value={cityIdToAdd}
-          options={availableCities}
+          options={filteredCities}
           openKey="office-city"
           openSelect={openSelect}
-          isLoading={isCitiesLoading}
-          disabled={!regionId || !districtId}
-          emptyText={
-            !regionId
-              ? 'Сначала выберите область'
-              : !districtId
-                ? 'Сначала выберите район'
-                : 'В выбранном районе нет доступных городов'
-          }
-          getLabel={(city) => getCityDisplayName(city)}
           setOpenSelect={setOpenSelect}
+          disabled={!districtId}
+          isLoading={isCitiesLoading}
+          emptyText="Города не найдены"
+          getLabel={(city) => getCityDisplayName(city)}
           onChange={onCityIdToAddChange}
         />
 
         <button
           type="button"
-          className="company-profile-btn company-profile-btn--primary company-profile-offices__add-btn"
+          className="company-profile-btn company-profile-btn--primary company-profile-office-add-btn"
           onClick={onAddCity}
-          disabled={!cityIdToAdd || isCitiesLoading}
+          disabled={!cityIdToAdd}
         >
           Добавить город
         </button>
       </div>
-
-      {error ? <FieldError message={error} /> : null}
 
       {selectedCities.length > 0 ? (
         <div className="company-profile-office-list">
           {selectedCities.map((city) => (
             <div key={city.id} className="company-profile-office-chip">
               <span>{getCityDisplayName(city)}</span>
+
               <button
                 type="button"
                 onClick={() => onRemoveCity(city.id)}
@@ -806,6 +820,7 @@ const CompanyOfficeSelector = ({
 export const EmployerCompanyProfilePage = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const logoInputRef = useRef<HTMLInputElement | null>(null)
 
   const [noticeSuccess, setNoticeSuccess] = useState('')
   const [noticeError, setNoticeError] = useState('')
@@ -842,6 +857,11 @@ export const EmployerCompanyProfilePage = () => {
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false)
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false)
 
+  const [isLogoModalOpen, setIsLogoModalOpen] = useState(false)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState('')
+  const [logoModalError, setLogoModalError] = useState('')
+
   const profileQuery = useQuery({
     queryKey: ['employer-profile', 'company-profile-page'],
     queryFn: fetchCompanyProfile,
@@ -872,20 +892,21 @@ export const EmployerCompanyProfilePage = () => {
 
   const citiesQuery = useQuery({
     queryKey: ['company-profile-cities'],
-    queryFn: () => fetchCatalog<GeoCity>('cities', 1000),
+    queryFn: () => fetchCatalog<GeoCity>('cities'),
     retry: false,
     refetchOnWindowFocus: false,
   })
 
   const updateProfileMutation = useMutation({
     mutationFn: updateCompanyProfile,
-    onSuccess: async () => {
+    onSuccess: async (updatedProfile) => {
       setNoticeSuccess('Профиль компании успешно сохранён.')
       setNoticeError('')
       setFieldErrors(emptyCompanyFieldErrors())
 
+      queryClient.setQueryData(['employer-profile', 'company-profile-page'], updatedProfile)
+
       await Promise.all([
-        profileQuery.refetch(),
         queryClient.invalidateQueries({ queryKey: ['employer-profile'] }),
         queryClient.invalidateQueries({ queryKey: ['employer-profile', 'company-profile-page'] }),
       ])
@@ -896,136 +917,173 @@ export const EmployerCompanyProfilePage = () => {
     },
   })
 
-  const emailMutation = useMutation({
-    mutationFn: async () =>
-      updateSensitiveCredentials({
-        email: emailDraft.trim(),
-        phone: null,
-        current_password: emailPassword,
-      }),
-    onSuccess: async () => {
-      const nextEmail = emailDraft.trim()
+  const uploadLogoMutation = useMutation({
+    mutationFn: uploadCompanyLogo,
+    onSuccess: async (updatedProfile) => {
+      setNoticeSuccess('Логотип компании успешно обновлён.')
+      setNoticeError('')
+      setLogoModalError('')
+      setIsLogoModalOpen(false)
+      setLogoFile(null)
 
-      setEmail(nextEmail)
+      if (logoPreviewUrl) {
+        URL.revokeObjectURL(logoPreviewUrl)
+        setLogoPreviewUrl('')
+      }
+
+      if (logoInputRef.current) {
+        logoInputRef.current.value = ''
+      }
+
+      queryClient.setQueryData(['employer-profile', 'company-profile-page'], updatedProfile)
+
+      await Promise.all([
+        profileQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ['employer-profile'] }),
+        queryClient.invalidateQueries({ queryKey: ['employer-profile', 'company-profile-page'] }),
+      ])
+    },
+    onError: (error) => {
+      setLogoModalError(getApiErrorMessage(error, 'Не удалось загрузить логотип компании.'))
+    },
+  })
+const deleteLogoMutation = useMutation({
+  mutationFn: deleteCompanyLogo,
+  onSuccess: async (updatedProfile) => {
+    setNoticeSuccess('Логотип компании удалён.')
+    setNoticeError('')
+    setLogoModalError('')
+    setIsLogoModalOpen(false)
+    setLogoFile(null)
+
+    if (logoPreviewUrl) {
+      URL.revokeObjectURL(logoPreviewUrl)
+      setLogoPreviewUrl('')
+    }
+
+    if (logoInputRef.current) {
+      logoInputRef.current.value = ''
+    }
+
+    queryClient.setQueryData(['employer-profile', 'company-profile-page'], updatedProfile)
+
+    await Promise.all([
+      profileQuery.refetch(),
+      queryClient.invalidateQueries({ queryKey: ['employer-profile'] }),
+      queryClient.invalidateQueries({ queryKey: ['employer-profile', 'company-profile-page'] }),
+    ])
+  },
+  onError: (error) => {
+    setLogoModalError(getApiErrorMessage(error, 'Не удалось удалить логотип компании.'))
+  },
+})
+  const emailMutation = useMutation({
+    mutationFn: updateSensitiveCredentials,
+    onSuccess: async () => {
+      const normalizedEmail = emailDraft.trim()
+
+      setEmail(normalizedEmail)
       setEmailSuccess('Email успешно обновлён.')
       setEmailError('')
-      setEmailWarning('')
       setEmailPassword('')
-      setIsEmailModalOpen(false)
+      setEmailWarning('')
 
-      await authMeQuery.refetch()
+      await queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
     onError: (error) => {
       setEmailSuccess('')
-      setEmailError(
-        getApiErrorMessage(error, 'Не удалось изменить email. Проверьте текущий пароль.'),
-      )
+      setEmailError(getApiErrorMessage(error, 'Не удалось изменить email.'))
     },
   })
 
   const passwordMutation = useMutation({
     mutationFn: changePassword,
     onSuccess: () => {
-      setPasswordSuccess('Пароль изменён. Выполняем выход из аккаунта.')
+      setPasswordSuccess('Пароль успешно изменён.')
       setPasswordError('')
-      setPasswordWarnings([])
       setCurrentPassword('')
       setNewPassword('')
       setConfirmNewPassword('')
-
-      window.setTimeout(() => {
-        authSession.clear()
-        navigate('/login', { replace: true })
-      }, 1200)
+      setPasswordWarnings([])
     },
     onError: (error) => {
       setPasswordSuccess('')
-      setPasswordError(
-        getApiErrorMessage(error, 'Не удалось изменить пароль. Проверьте текущий пароль.'),
-      )
+      setPasswordError(getApiErrorMessage(error, 'Не удалось изменить пароль.'))
     },
   })
 
+  const profile = profileQuery.data
+  const authMe = authMeQuery.data
+
+  const regions = regionsQuery.data || []
+  const districts = districtsQuery.data || []
+  const cities = citiesQuery.data || []
+
+  const normalizedLogo = profile?.logo?.trim() || ''
+  const displayName = name.trim() || profile?.name || 'Компания'
+  const initials = getCompanyInitials(displayName)
+  const vacanciesCount = profile?.vacancies_count ?? profile?.vacancies?.length ?? 0
+
+  const selectedCities = useMemo(() => {
+    return selectedCityIds
+      .map((cityId) => cities.find((city) => city.id === cityId))
+      .filter(Boolean) as GeoCity[]
+  }, [cities, selectedCityIds])
+
+  const completionPercent = useMemo(() => {
+    const checks = [
+      Boolean(name.trim()),
+      Boolean(description.trim()),
+      Boolean(website.trim()),
+      Boolean(foundedYear.trim()),
+      Boolean(employeeCount.trim()),
+      selectedCityIds.length > 0,
+      Boolean(normalizedLogo),
+    ]
+
+    const completed = checks.filter(Boolean).length
+    return Math.round((completed / checks.length) * 100)
+  }, [description, employeeCount, foundedYear, name, normalizedLogo, selectedCityIds.length, website])
+
+  const yearsOnMarket = useMemo(() => {
+    const year = parsePositiveInteger(foundedYear)
+
+    if (!year) return null
+    if (year > currentYear) return null
+
+    return currentYear - year
+  }, [foundedYear])
+
   useEffect(() => {
-    const profile = profileQuery.data
     if (!profile) return
 
     setName(profile.name || '')
     setDescription(profile.description || '')
     setWebsite(profile.website || '')
     setFoundedYear(profile.founded_year ? String(profile.founded_year) : '')
-    setEmployeeCount(
-      profile.employee_count !== null && profile.employee_count !== undefined
-        ? String(profile.employee_count)
-        : '',
-    )
+    setEmployeeCount(profile.employee_count ? String(profile.employee_count) : '')
 
-    const idsFromProfile = [
-      ...(Array.isArray(profile.city_ids) ? profile.city_ids : []),
-      ...(Array.isArray(profile.cities)
-        ? profile.cities
-            .map((city) => city?.id)
-            .filter((id): id is number => typeof id === 'number')
-        : []),
-    ]
+    const idsFromCities = Array.isArray(profile.cities)
+      ? profile.cities
+          .map((city) => Number(city.id))
+          .filter((cityId) => Number.isFinite(cityId) && cityId > 0)
+      : []
 
-    setSelectedCityIds(Array.from(new Set(idsFromProfile)))
-  }, [profileQuery.data])
+    const idsFromPayload = Array.isArray(profile.city_ids)
+      ? profile.city_ids
+          .map(Number)
+          .filter((cityId) => Number.isFinite(cityId) && cityId > 0)
+      : []
 
-  useEffect(() => {
-    const profile = profileQuery.data
-    const cities = citiesQuery.data || []
-
-    if (!profile || selectedCityIds.length > 0 || cities.length === 0) return
-
-    const cityNames = Array.isArray(profile.city_names) ? profile.city_names : []
-    if (!cityNames.length) return
-
-    const normalizedNames = new Set(cityNames.map((name) => name.trim().toLowerCase()))
-
-    const matchedIds = cities
-      .filter((city) => {
-        const variants = [city.name, city.full_name, getCityDisplayName(city)]
-          .filter(Boolean)
-          .map((value) => String(value).trim().toLowerCase())
-
-        return variants.some((variant) => normalizedNames.has(variant))
-      })
-      .map((city) => city.id)
-
-    if (matchedIds.length) {
-      setSelectedCityIds(Array.from(new Set(matchedIds)))
-    }
-  }, [profileQuery.data, citiesQuery.data, selectedCityIds.length])
+    setSelectedCityIds(Array.from(new Set([...idsFromCities, ...idsFromPayload])))
+  }, [profile])
 
   useEffect(() => {
-    const me = authMeQuery.data
-    if (!me) return
+    if (!authMe) return
 
-    setEmail(me.email || '')
-    setEmailDraft(me.email || '')
-  }, [authMeQuery.data])
-
-  useEffect(() => {
-    const hasOpenedModal = isEmailModalOpen || isPasswordModalOpen
-    document.body.style.overflow = hasOpenedModal ? 'hidden' : ''
-
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [isEmailModalOpen, isPasswordModalOpen])
-
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-
-      setIsEmailModalOpen(false)
-      setIsPasswordModalOpen(false)
-    }
-
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [])
+    setEmail(authMe.email || '')
+    setEmailDraft(authMe.email || '')
+  }, [authMe])
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
@@ -1036,151 +1094,117 @@ export const EmployerCompanyProfilePage = () => {
       }
     }
 
-    document.addEventListener('mousedown', handleDocumentClick)
-    return () => document.removeEventListener('mousedown', handleDocumentClick)
+    document.addEventListener('click', handleDocumentClick)
+
+    return () => {
+      document.removeEventListener('click', handleDocumentClick)
+    }
   }, [])
 
-  const vacanciesCount = useMemo(() => {
-    const profile = profileQuery.data
+  useEffect(() => {
+    const hasOpenedModal = isEmailModalOpen || isPasswordModalOpen || isLogoModalOpen
+    document.body.style.overflow = hasOpenedModal ? 'hidden' : ''
 
-    if (!profile) return 0
-    if (typeof profile.vacancies_count === 'number') return profile.vacancies_count
-    if (Array.isArray(profile.vacancies)) return profile.vacancies.length
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isEmailModalOpen, isPasswordModalOpen, isLogoModalOpen])
 
-    return 0
-  }, [profileQuery.data])
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
 
-  const completionPercent = useMemo(() => {
-    const fields = [
-      name.trim(),
-      description.trim(),
-      website.trim(),
-      foundedYear.trim(),
-      employeeCount.trim(),
-      selectedCityIds.length ? 'offices' : '',
-    ]
-
-    const filled = fields.filter(Boolean).length
-
-    return Math.round((filled / fields.length) * 100)
-  }, [name, description, website, foundedYear, employeeCount, selectedCityIds.length])
-
-  const yearsOnMarket = useMemo(() => {
-    const parsed = parsePositiveInteger(foundedYear)
-    
-
-    if (!parsed) return null
-
-    return parsed
-  }, [foundedYear])
-
-  const normalizedLogo = profileQuery.data?.logo?.trim() || ''
-  const displayName = name.trim() || 'Профиль компании'
-  const initials = getCompanyInitials(displayName)
-
-  const cities = citiesQuery.data || []
-  const regions = regionsQuery.data || []
-  const districts = districtsQuery.data || []
-
-  const selectedOfficeCities = useMemo(() => {
-    return selectedCityIds
-      .map((id) => cities.find((city) => city.id === id))
-      .filter(Boolean) as GeoCity[]
-  }, [selectedCityIds, cities])
-
-  const validateProfile = () => {
-    const nextErrors = emptyCompanyFieldErrors()
-
-    const normalizedName = name.trim()
-    const normalizedDescription = description.trim()
-    const parsedFoundedYear = parsePositiveInteger(foundedYear)
-    const parsedEmployeeCount = parsePositiveInteger(employeeCount)
-
-    if (!normalizedName) {
-      nextErrors.name = 'Укажите название компании.'
-    } else if (normalizedName.length < 2) {
-      nextErrors.name = 'Название компании слишком короткое.'
-    } else if (normalizedName.length > 120) {
-      nextErrors.name = 'Название компании должно быть не длиннее 120 символов.'
+      if (!emailMutation.isPending) setIsEmailModalOpen(false)
+      if (!passwordMutation.isPending) setIsPasswordModalOpen(false)
+      if (!uploadLogoMutation.isPending && !deleteLogoMutation.isPending) {
+  handleCloseLogoModal()
+}
     }
 
-    if (normalizedDescription && normalizedDescription.length < 20) {
-      nextErrors.description = 'Описание компании слишком короткое. Минимум 20 символов.'
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [
+    emailMutation.isPending,
+    passwordMutation.isPending,
+    uploadLogoMutation.isPending,
+    deleteLogoMutation.isPending,
+    logoPreviewUrl,
+  ])
+
+  useEffect(() => {
+    return () => {
+      if (logoPreviewUrl) {
+        URL.revokeObjectURL(logoPreviewUrl)
+      }
+    }
+  }, [logoPreviewUrl])
+
+  const validateCompanyForm = () => {
+    const errors = emptyCompanyFieldErrors()
+
+    if (!name.trim()) {
+      errors.name = 'Введите название компании.'
+    }
+
+    if (name.trim().length > 255) {
+      errors.name = 'Название компании должно быть не длиннее 255 символов.'
+    }
+
+    if (description.trim().length > 5000) {
+      errors.description = 'Описание должно быть не длиннее 5000 символов.'
     }
 
     if (!isValidUrl(website)) {
-      nextErrors.website = 'Введите корректный сайт компании.'
+      errors.website = 'Введите корректную ссылку на сайт.'
     }
+
+    const parsedFoundedYear = parsePositiveInteger(foundedYear)
 
     if (parsedFoundedYear === undefined) {
-      nextErrors.foundedYear = 'Год основания должен быть целым числом.'
-    } else if (parsedFoundedYear !== null && parsedFoundedYear < 1800) {
-      nextErrors.foundedYear = 'Год основания выглядит некорректно.'
-    } else if (parsedFoundedYear !== null && parsedFoundedYear > currentYear) {
-      nextErrors.foundedYear = 'Год основания не может быть в будущем.'
+      errors.foundedYear = 'Введите корректный год основания.'
+    } else if (parsedFoundedYear !== null && (parsedFoundedYear < 1800 || parsedFoundedYear > 2100)) {
+      errors.foundedYear = 'Год основания должен быть от 1800 до 2100.'
     }
 
+    const parsedEmployeeCount = parsePositiveInteger(employeeCount)
+
     if (parsedEmployeeCount === undefined) {
-      nextErrors.employeeCount = 'Количество сотрудников должно быть целым числом.'
+      errors.employeeCount = 'Введите корректное количество сотрудников.'
     }
 
     if (selectedCityIds.length === 0) {
-      nextErrors.offices = 'Добавьте хотя бы один город офиса компании.'
+      errors.offices = 'Добавьте хотя бы один город офиса компании.'
     }
 
-    setFieldErrors(nextErrors)
+    setFieldErrors(errors)
 
-    return Object.values(nextErrors).some(Boolean)
-  }
-
-  const buildProfilePayload = () => {
-    const parsedFoundedYear = parsePositiveInteger(foundedYear)
-    const parsedEmployeeCount = parsePositiveInteger(employeeCount)
-
-    return {
-      name: name.trim(),
-      description: description.trim() || null,
-      website: website.trim() ? normalizeUrl(website) : null,
-      logo: profileQuery.data?.logo || null,
-      founded_year: parsedFoundedYear,
-      employee_count: parsedEmployeeCount,
-      city_ids: selectedCityIds,
-    }
-  }
-
-  const handleAddOfficeCity = () => {
-    const nextCityId = Number(officeCityIdToAdd)
-
-    if (!Number.isFinite(nextCityId) || nextCityId <= 0) return
-
-    setSelectedCityIds((prev) => {
-      if (prev.includes(nextCityId)) return prev
-      return [...prev, nextCityId]
-    })
-
-    setOfficeCityIdToAdd('')
-    setOpenOfficeSelect(null)
-    setFieldErrors((prev) => ({ ...prev, offices: '' }))
-    setNoticeError('')
-    setNoticeSuccess('')
-  }
-
-  const handleRemoveOfficeCity = (cityId: number) => {
-    setSelectedCityIds((prev) => prev.filter((id) => id !== cityId))
-    setFieldErrors((prev) => ({ ...prev, offices: '' }))
-    setNoticeError('')
-    setNoticeSuccess('')
+    return !Object.values(errors).some(Boolean)
   }
 
   const handleSaveProfile = async () => {
     setNoticeSuccess('')
     setNoticeError('')
 
-    const hasErrors = validateProfile()
-    if (hasErrors) return
+    if (!validateCompanyForm()) {
+      setNoticeError('Проверьте поля формы.')
+      return
+    }
+
+    const parsedFoundedYear = parsePositiveInteger(foundedYear)
+    const parsedEmployeeCount = parsePositiveInteger(employeeCount)
 
     try {
-      await updateProfileMutation.mutateAsync(buildProfilePayload())
+      await updateProfileMutation.mutateAsync({
+        name: name.trim(),
+        description: description.trim() || null,
+        website: website.trim() ? normalizeUrl(website) : null,
+        founded_year: parsedFoundedYear,
+        employee_count: parsedEmployeeCount,
+        city_ids: selectedCityIds,
+      })
     } catch {
       // Ошибка обработана в onError.
     }
@@ -1191,9 +1215,10 @@ export const EmployerCompanyProfilePage = () => {
     setEmailError('')
 
     const warning = validateEmailValue(emailDraft)
+    setEmailWarning(warning)
 
     if (warning) {
-      setEmailWarning(warning)
+      setEmailError(warning)
       return
     }
 
@@ -1202,15 +1227,12 @@ export const EmployerCompanyProfilePage = () => {
       return
     }
 
-    if (emailDraft.trim() === email.trim()) {
-      setEmailError('Новый email совпадает с текущим.')
-      return
-    }
-
-    setEmailWarning('')
-
     try {
-      await emailMutation.mutateAsync()
+      await emailMutation.mutateAsync({
+        email: emailDraft.trim(),
+        phone: null,
+        current_password: emailPassword,
+      })
     } catch {
       // Ошибка обработана в onError.
     }
@@ -1220,27 +1242,21 @@ export const EmployerCompanyProfilePage = () => {
     setPasswordSuccess('')
     setPasswordError('')
 
-    const warnings = validatePasswordValue(newPassword)
-
-    if (warnings.length) {
-      setPasswordWarnings(warnings)
-      return
-    }
-
-    setPasswordWarnings([])
-
     if (!currentPassword.trim()) {
       setPasswordError('Введите текущий пароль.')
       return
     }
 
-    if (!confirmNewPassword) {
-      setPasswordError('Подтвердите новый пароль.')
+    const warnings = validatePasswordValue(newPassword)
+    setPasswordWarnings(warnings)
+
+    if (warnings.length > 0) {
+      setPasswordError('Проверьте новый пароль.')
       return
     }
 
     if (newPassword !== confirmNewPassword) {
-      setPasswordError('Новый пароль и подтверждение не совпадают.')
+      setPasswordError('Новые пароли не совпадают.')
       return
     }
 
@@ -1254,6 +1270,134 @@ export const EmployerCompanyProfilePage = () => {
         current_password: currentPassword,
         new_password: newPassword,
       })
+
+      authSession.clear?.()
+
+      window.setTimeout(() => {
+        navigate('/login', { replace: true })
+      }, 1200)
+    } catch {
+      // Ошибка обработана в onError.
+    }
+  }
+
+  const handleAddOfficeCity = () => {
+    const cityId = Number(officeCityIdToAdd)
+
+    if (!Number.isFinite(cityId) || cityId <= 0) return
+
+    setSelectedCityIds((prev) => Array.from(new Set([...prev, cityId])))
+    setOfficeCityIdToAdd('')
+    setFieldErrors((prev) => ({ ...prev, offices: '' }))
+  }
+
+  const handleRemoveOfficeCity = (cityId: number) => {
+    setSelectedCityIds((prev) => prev.filter((id) => id !== cityId))
+  }
+
+  const handleOpenEmailModal = () => {
+    setEmailDraft(email)
+    setEmailPassword('')
+    setEmailWarning('')
+    setEmailSuccess('')
+    setEmailError('')
+    setIsEmailModalOpen(true)
+  }
+
+  const handleOpenPasswordModal = () => {
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmNewPassword('')
+    setPasswordWarnings([])
+    setPasswordSuccess('')
+    setPasswordError('')
+    setIsPasswordModalOpen(true)
+  }
+
+  const handleOpenLogoModal = () => {
+    setLogoModalError('')
+    setLogoFile(null)
+
+    if (logoPreviewUrl) {
+      URL.revokeObjectURL(logoPreviewUrl)
+      setLogoPreviewUrl('')
+    }
+
+    if (logoInputRef.current) {
+      logoInputRef.current.value = ''
+    }
+
+    setIsLogoModalOpen(true)
+  }
+
+  const handleCloseLogoModal = () => {
+  if (uploadLogoMutation.isPending || deleteLogoMutation.isPending) return
+
+  setIsLogoModalOpen(false)
+  setLogoModalError('')
+  setLogoFile(null)
+
+  if (logoPreviewUrl) {
+    URL.revokeObjectURL(logoPreviewUrl)
+    setLogoPreviewUrl('')
+  }
+
+  if (logoInputRef.current) {
+    logoInputRef.current.value = ''
+  }
+}
+const handleDeleteLogo = async () => {
+  setLogoModalError('')
+
+  if (!normalizedLogo) {
+    setLogoModalError('У компании пока нет логотипа.')
+    return
+  }
+
+  try {
+    await deleteLogoMutation.mutateAsync()
+  } catch {
+    // Ошибка обработана в onError.
+  }
+}
+
+  const handleSelectLogoFile = (file?: File | null) => {
+    setLogoModalError('')
+
+    if (!file) return
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
+
+    if (!allowedTypes.includes(file.type)) {
+      setLogoModalError('Выберите изображение в формате JPG, PNG или WEBP.')
+      return
+    }
+
+    const maxSize = 8 * 1024 * 1024
+
+    if (file.size > maxSize) {
+      setLogoModalError('Логотип должен быть не больше 8 МБ.')
+      return
+    }
+
+    if (logoPreviewUrl) {
+      URL.revokeObjectURL(logoPreviewUrl)
+    }
+
+    setLogoFile(file)
+    setLogoPreviewUrl(URL.createObjectURL(file))
+  }
+
+  const handleSaveLogo = async () => {
+    setLogoModalError('')
+
+    if (!logoFile) {
+      setLogoModalError('Сначала выберите логотип.')
+      return
+    }
+
+    try {
+      await uploadLogoMutation.mutateAsync(logoFile)
     } catch {
       // Ошибка обработана в onError.
     }
@@ -1273,11 +1417,7 @@ export const EmployerCompanyProfilePage = () => {
               <section className="company-profile-summary-card">
                 <div className="company-profile-logo-wrap">
                   {normalizedLogo ? (
-                    <img
-                      src={normalizedLogo}
-                      alt="Логотип компании"
-                      className="company-profile-logo"
-                    />
+                    <img src={normalizedLogo} alt="Логотип компании" className="company-profile-logo" />
                   ) : (
                     <div className="company-profile-logo company-profile-logo--placeholder">
                       {initials}
@@ -1287,9 +1427,7 @@ export const EmployerCompanyProfilePage = () => {
 
                 <div className="company-profile-summary-content">
                   <span className="company-profile-eyebrow">Компания</span>
-
                   <h1>{displayName}</h1>
-
                   <p>Заполненный профиль помогает кандидатам быстрее понять работодателя.</p>
                 </div>
 
@@ -1326,13 +1464,26 @@ export const EmployerCompanyProfilePage = () => {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  className="company-profile-btn company-profile-btn--outline company-profile-logo-btn"
-                  disabled
-                >
-                  Логотип скоро появится
-                </button>
+                <div className="company-profile-logo-actions">
+                  <button
+                    type="button"
+                    className="company-profile-btn company-profile-btn--outline company-profile-logo-btn"
+                    onClick={handleOpenLogoModal}
+                  >
+                    {normalizedLogo ? 'Изменить логотип' : 'Загрузить логотип'}
+                  </button>
+
+                  {normalizedLogo ? (
+                    <button
+                      type="button"
+                      className="company-profile-btn company-profile-btn--danger company-profile-logo-btn"
+                      onClick={handleDeleteLogo}
+                      disabled={deleteLogoMutation.isPending}
+                    >
+                      {deleteLogoMutation.isPending ? 'Удаляем...' : 'Удалить логотип'}
+                    </button>
+                  ) : null}
+                </div>
               </section>
             </aside>
 
@@ -1340,19 +1491,20 @@ export const EmployerCompanyProfilePage = () => {
               <section className="company-profile-main-card">
                 <div className="company-profile-main-card__header">
                   <div>
-                    <span className="company-profile-eyebrow">Кабинет работодателя</span>
-
-                    <h2>Профиль компании</h2>
-
-                    <p>Укажите данные компании, которые будут использоваться в вакансиях.</p>
+                    <span className="company-profile-eyebrow">Профиль работодателя</span>
+                    <h2>Информация о компании</h2>
+                    <p>
+                      Заполните данные компании, добавьте города офисов и поддерживайте профиль актуальным.
+                    </p>
                   </div>
 
                   <button
                     type="button"
                     className="company-profile-btn company-profile-btn--outline"
-                    onClick={() => navigate('/employer/vacancies')}
+                    onClick={() => profileQuery.refetch()}
+                    disabled={isPageLoading}
                   >
-                    ← К вакансиям
+                    Обновить
                   </button>
                 </div>
 
@@ -1362,9 +1514,7 @@ export const EmployerCompanyProfilePage = () => {
 
                 {isPageError ? (
                   <div className="company-profile-message company-profile-message--error">
-                    {profileQuery.isError
-                      ? getApiErrorMessage(profileQuery.error, 'Не удалось загрузить профиль компании.')
-                      : getApiErrorMessage(authMeQuery.error, 'Не удалось загрузить данные аккаунта.')}
+                    Не удалось загрузить профиль компании.
                   </div>
                 ) : null}
 
@@ -1381,62 +1531,76 @@ export const EmployerCompanyProfilePage = () => {
                 ) : null}
 
                 <div className="company-profile-form-grid">
-                  <label className="company-profile-field">
+                  <label className="company-profile-field company-profile-field--full">
                     <span>Название компании</span>
-
                     <input
                       value={name}
+                      placeholder="Например: SaleSoft"
                       onChange={(event) => {
                         setName(event.target.value)
                         setFieldErrors((prev) => ({ ...prev, name: '' }))
-                        setNoticeError('')
-                        setNoticeSuccess('')
                       }}
-                      maxLength={120}
-                      placeholder="Например: SoftStore"
                     />
-
                     <FieldError message={fieldErrors.name} />
                   </label>
 
-                  <label className="company-profile-field">
-                    <span>Сайт компании</span>
-
-                    <input
-                      value={website}
-                      onChange={(event) => {
-                        setWebsite(event.target.value)
-                        setFieldErrors((prev) => ({ ...prev, website: '' }))
-                        setNoticeError('')
-                        setNoticeSuccess('')
-                      }}
-                      placeholder="Например: softstore.by"
-                    />
-
-                    <FieldError message={fieldErrors.website} />
-                  </label>
-
                   <label className="company-profile-field company-profile-field--full">
-                    <span>Описание компании</span>
-
+                    <span>Описание</span>
                     <textarea
                       value={description}
+                      placeholder="Расскажите о компании, продуктах, команде и условиях работы."
                       onChange={(event) => {
                         setDescription(event.target.value)
                         setFieldErrors((prev) => ({ ...prev, description: '' }))
-                        setNoticeError('')
-                        setNoticeSuccess('')
                       }}
-                      maxLength={2000}
-                      placeholder="Расскажите, чем занимается компания, какая у вас команда и почему кандидату стоит выбрать вас."
                     />
-
                     <FieldError message={fieldErrors.description} />
                   </label>
 
                   <div className="company-profile-counter">
-                    {description.trim().length}/2000 символов
+                    {description.length}/5000
                   </div>
+
+                  <label className="company-profile-field">
+                    <span>Сайт</span>
+                    <input
+                      value={website}
+                      placeholder="example.com"
+                      onChange={(event) => {
+                        setWebsite(event.target.value)
+                        setFieldErrors((prev) => ({ ...prev, website: '' }))
+                      }}
+                    />
+                    <FieldError message={fieldErrors.website} />
+                  </label>
+
+                  <label className="company-profile-field">
+                    <span>Год основания</span>
+                    <input
+                      value={foundedYear}
+                      placeholder="2018"
+                      inputMode="numeric"
+                      onChange={(event) => {
+                        setFoundedYear(event.target.value)
+                        setFieldErrors((prev) => ({ ...prev, foundedYear: '' }))
+                      }}
+                    />
+                    <FieldError message={fieldErrors.foundedYear} />
+                  </label>
+
+                  <label className="company-profile-field">
+                    <span>Количество сотрудников</span>
+                    <input
+                      value={employeeCount}
+                      placeholder="100"
+                      inputMode="numeric"
+                      onChange={(event) => {
+                        setEmployeeCount(event.target.value)
+                        setFieldErrors((prev) => ({ ...prev, employeeCount: '' }))
+                      }}
+                    />
+                    <FieldError message={fieldErrors.employeeCount} />
+                  </label>
                 </div>
 
                 <CompanyOfficeSelector
@@ -1453,82 +1617,24 @@ export const EmployerCompanyProfilePage = () => {
                   isDistrictsLoading={districtsQuery.isLoading}
                   error={fieldErrors.offices}
                   setOpenSelect={setOpenOfficeSelect}
-                  onRegionChange={(value) => {
-                    setOfficeRegionId(value)
-                    setNoticeError('')
-                    setNoticeSuccess('')
-                  }}
-                  onDistrictChange={(value) => {
-                    setOfficeDistrictId(value)
-                    setNoticeError('')
-                    setNoticeSuccess('')
-                  }}
+                  onRegionChange={setOfficeRegionId}
+                  onDistrictChange={setOfficeDistrictId}
                   onCityIdToAddChange={setOfficeCityIdToAdd}
                   onAddCity={handleAddOfficeCity}
                   onRemoveCity={handleRemoveOfficeCity}
                 />
 
-                <div className="company-profile-form-grid company-profile-form-grid--compact">
-                  <label className="company-profile-field">
-                    <span>Год основания</span>
-
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={1800}
-                      max={currentYear}
-                      value={foundedYear}
-                      onChange={(event) => {
-                        setFoundedYear(event.target.value)
-                        setFieldErrors((prev) => ({ ...prev, foundedYear: '' }))
-                        setNoticeError('')
-                        setNoticeSuccess('')
-                      }}
-                      placeholder="Например: 2018"
-                    />
-
-                    <FieldError message={fieldErrors.foundedYear} />
-                  </label>
-
-                  <label className="company-profile-field">
-                    <span>Количество сотрудников</span>
-
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={employeeCount}
-                      onChange={(event) => {
-                        setEmployeeCount(event.target.value)
-                        setFieldErrors((prev) => ({ ...prev, employeeCount: '' }))
-                        setNoticeError('')
-                        setNoticeSuccess('')
-                      }}
-                      placeholder="Например: 100000"
-                    />
-
-                    <FieldError message={fieldErrors.employeeCount} />
-                  </label>
-                </div>
-
                 <div className="company-security-list">
                   <div className="company-security-row">
                     <div className="company-security-row__content">
                       <span>Email</span>
-                      <strong>{email || 'Не указан'}</strong>
+                      <strong>{email || '—'}</strong>
                     </div>
 
                     <button
                       type="button"
                       className="company-security-edit-btn"
-                      onClick={() => {
-                        setEmailSuccess('')
-                        setEmailError('')
-                        setEmailWarning('')
-                        setEmailPassword('')
-                        setEmailDraft(email)
-                        setIsEmailModalOpen(true)
-                      }}
+                      onClick={handleOpenEmailModal}
                       aria-label="Изменить email"
                     >
                       <EditIcon />
@@ -1544,15 +1650,7 @@ export const EmployerCompanyProfilePage = () => {
                     <button
                       type="button"
                       className="company-security-edit-btn"
-                      onClick={() => {
-                        setPasswordSuccess('')
-                        setPasswordError('')
-                        setPasswordWarnings([])
-                        setCurrentPassword('')
-                        setNewPassword('')
-                        setConfirmNewPassword('')
-                        setIsPasswordModalOpen(true)
-                      }}
+                      onClick={handleOpenPasswordModal}
                       aria-label="Изменить пароль"
                     >
                       <EditIcon />
@@ -1583,8 +1681,109 @@ export const EmployerCompanyProfilePage = () => {
           </section>
         </div>
 
-        {isEmailModalOpen && (
-          <SecurityModal title="Изменение email" onClose={() => setIsEmailModalOpen(false)}>
+        {isLogoModalOpen ? (
+          <div className="company-profile-modal-overlay" onClick={handleCloseLogoModal}>
+            <div
+              className="company-profile-modal company-logo-modal"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="company-profile-modal__header">
+                <div>
+                  <h2>Выберите лого</h2>
+                  <p>
+                    Загрузите изображение компании. Оно будет показано в профиле, вакансиях и карточках компании.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="company-profile-modal__close"
+                  onClick={handleCloseLogoModal}
+                  disabled={uploadLogoMutation.isPending || deleteLogoMutation.isPending}
+                  aria-label="Закрыть"
+                >
+                  <span>×</span>
+                </button>
+              </div>
+
+              <div className="company-logo-modal__body">
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="company-logo-modal__file-input"
+                  onChange={(event) => handleSelectLogoFile(event.target.files?.[0])}
+                />
+
+                <button
+                  type="button"
+                  className="company-logo-modal__choose"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploadLogoMutation.isPending || deleteLogoMutation.isPending}
+                >
+                  Выбрать файл
+                </button>
+
+                <div className="company-logo-preview-card">
+                  <div className="company-logo-preview-card__avatar">
+                    {logoPreviewUrl || normalizedLogo ? (
+                      <img src={logoPreviewUrl || normalizedLogo} alt="Предпросмотр логотипа" />
+                    ) : (
+                      <span>{initials}</span>
+                    )}
+                  </div>
+
+                  <div className="company-logo-preview-card__content">
+                    <strong>{displayName}</strong>
+                    <span>Так логотип будет выглядеть в карточке компании</span>
+                  </div>
+                </div>
+
+                {logoFile ? (
+                  <div className="company-logo-modal__file-info">
+                    <span>{logoFile.name}</span>
+                    <strong>{(logoFile.size / 1024 / 1024).toFixed(2)} МБ</strong>
+                  </div>
+                ) : null}
+
+                {logoModalError ? (
+                  <div className="company-profile-message company-profile-message--error">
+                    {logoModalError}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="company-profile-modal__footer company-logo-modal__footer">
+
+                      <button
+                        type="button"
+                        className="company-profile-btn company-profile-btn--outline"
+                        onClick={handleCloseLogoModal}
+                        disabled={uploadLogoMutation.isPending || deleteLogoMutation.isPending}
+                      >
+                        Отмена
+                      </button>
+
+                      <button
+                        type="button"
+                        className="company-profile-btn company-profile-btn--primary"
+                        onClick={handleSaveLogo}
+                        disabled={!logoFile || uploadLogoMutation.isPending || deleteLogoMutation.isPending}
+                      >
+                        {uploadLogoMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
+                      </button>
+                    </div>
+            </div>
+          </div>
+        ) : null}
+
+        {isEmailModalOpen ? (
+          <SecurityModal
+            title="Изменение email"
+            onClose={() => setIsEmailModalOpen(false)}
+            className="company-profile-modal--compact company-security-modal"
+            closeDisabled={emailMutation.isPending}
+          >
             {emailSuccess ? (
               <div className="company-profile-message company-profile-message--success">
                 {emailSuccess}
@@ -1597,44 +1796,47 @@ export const EmployerCompanyProfilePage = () => {
               </div>
             ) : null}
 
-            <label className="company-profile-field">
-              <span>Новый email</span>
+            <div className="company-profile-form-grid company-profile-form-grid--compact">
+              <label className="company-profile-field company-profile-field--full">
+                <span>Новый email</span>
 
-              <input
-                type="email"
-                value={emailDraft}
-                onChange={(event) => {
-                  const value = event.target.value
+                <input
+                  type="email"
+                  value={emailDraft}
+                  placeholder="name@example.com"
+                  autoComplete="email"
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setEmailDraft(value)
+                    setEmailWarning(value ? validateEmailValue(value) : '')
+                    setEmailError('')
+                  }}
+                />
 
-                  setEmailDraft(value)
-                  setEmailWarning(value ? validateEmailValue(value) : '')
-                  setEmailError('')
-                }}
-                placeholder="name@example.com"
-              />
+                <FieldError message={emailWarning} />
+              </label>
 
-              <FieldError message={emailWarning} />
-            </label>
+              <label className="company-profile-field company-profile-field--full">
+                <span>Текущий пароль</span>
 
-            <label className="company-profile-field">
-              <span>Текущий пароль</span>
-
-              <PasswordInput
-                value={emailPassword}
-                placeholder="Введите текущий пароль"
-                autoComplete="current-password"
-                onChange={(value) => {
-                  setEmailPassword(value)
-                  setEmailError('')
-                }}
-              />
-            </label>
+                <PasswordInput
+                  value={emailPassword}
+                  placeholder="Введите текущий пароль"
+                  autoComplete="current-password"
+                  onChange={(value) => {
+                    setEmailPassword(value)
+                    setEmailError('')
+                  }}
+                />
+              </label>
+            </div>
 
             <div className="company-profile-modal__footer">
               <button
                 type="button"
                 className="company-profile-btn company-profile-btn--outline"
                 onClick={() => setIsEmailModalOpen(false)}
+                disabled={emailMutation.isPending}
               >
                 Отмена
               </button>
@@ -1645,17 +1847,19 @@ export const EmployerCompanyProfilePage = () => {
                 onClick={handleSaveEmail}
                 disabled={emailMutation.isPending}
               >
-                {emailMutation.isPending ? 'Сохраняем...' : 'Сохранить email'}
+                {emailMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
               </button>
             </div>
           </SecurityModal>
-        )}
+        ) : null}
 
-        {isPasswordModalOpen && (
+        {isPasswordModalOpen ? (
           <SecurityModal
             title="Смена пароля"
             subtitle="После успешной смены пароля потребуется заново войти в аккаунт."
             onClose={() => setIsPasswordModalOpen(false)}
+            className="company-profile-modal--compact company-security-modal"
+            closeDisabled={passwordMutation.isPending}
           >
             {passwordSuccess ? (
               <div className="company-profile-message company-profile-message--success">
@@ -1670,49 +1874,49 @@ export const EmployerCompanyProfilePage = () => {
             ) : null}
 
             <div className="company-profile-form-grid company-profile-form-grid--password">
-              <label className="company-profile-field">
+              <label className="company-profile-field company-profile-field--full">
                 <span>Текущий пароль</span>
 
                 <PasswordInput
-  value={currentPassword}
-  placeholder="Введите текущий пароль"
-  autoComplete="current-password"
-  onChange={(value) => {
-    setCurrentPassword(value)
-    setPasswordError('')
-  }}
-/>
+                  value={currentPassword}
+                  placeholder="Введите текущий пароль"
+                  autoComplete="current-password"
+                  onChange={(value) => {
+                    setCurrentPassword(value)
+                    setPasswordError('')
+                  }}
+                />
               </label>
 
-              <label className="company-profile-field">
+              <label className="company-profile-field company-profile-field--full">
                 <span>Новый пароль</span>
 
                 <PasswordInput
-  value={newPassword}
-  placeholder="Aa123456!"
-  autoComplete="new-password"
-  onChange={(value) => {
-    setNewPassword(value)
-    setPasswordWarnings(value ? validatePasswordValue(value) : [])
-    setPasswordError('')
-  }}
-/>
+                  value={newPassword}
+                  placeholder="Aa123456!"
+                  autoComplete="new-password"
+                  onChange={(value) => {
+                    setNewPassword(value)
+                    setPasswordWarnings(value ? validatePasswordValue(value) : [])
+                    setPasswordError('')
+                  }}
+                />
 
                 <PasswordErrors errors={passwordWarnings} />
               </label>
 
               <label className="company-profile-field company-profile-field--full">
-                <span>Подтверждение нового пароля</span>
+                <span>Повторите новый пароль</span>
 
                 <PasswordInput
-  value={confirmNewPassword}
-  placeholder="Повторите новый пароль"
-  autoComplete="new-password"
-  onChange={(value) => {
-    setConfirmNewPassword(value)
-    setPasswordError('')
-  }}
-/>
+                  value={confirmNewPassword}
+                  placeholder="Повторите новый пароль"
+                  autoComplete="new-password"
+                  onChange={(value) => {
+                    setConfirmNewPassword(value)
+                    setPasswordError('')
+                  }}
+                />
               </label>
             </div>
 
@@ -1721,6 +1925,7 @@ export const EmployerCompanyProfilePage = () => {
                 type="button"
                 className="company-profile-btn company-profile-btn--outline"
                 onClick={() => setIsPasswordModalOpen(false)}
+                disabled={passwordMutation.isPending}
               >
                 Отмена
               </button>
@@ -1731,11 +1936,11 @@ export const EmployerCompanyProfilePage = () => {
                 onClick={handleChangePassword}
                 disabled={passwordMutation.isPending}
               >
-                {passwordMutation.isPending ? 'Меняем пароль...' : 'Изменить пароль'}
+                {passwordMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
               </button>
             </div>
           </SecurityModal>
-        )}
+        ) : null}
       </main>
 
       <Footer />

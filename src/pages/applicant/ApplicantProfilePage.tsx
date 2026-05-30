@@ -1,6 +1,6 @@
 import type { AxiosError } from 'axios'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Header } from '../../shared/ui/Header'
 import { Footer } from '../../shared/ui/Footer'
@@ -40,6 +40,7 @@ type ApplicantProfile = {
   gender?: string | null
   birth_date?: string | null
   city?: CityItem | null
+  photo?: string | null
   photo_url?: string | null
   phone?: string | null
 }
@@ -73,6 +74,34 @@ type ApiErrorResponse = {
   error?: string
 }
 
+type ModalProps = {
+  title: string
+  subtitle?: string
+  onClose: () => void
+  children: ReactNode
+  className?: string
+  closeDisabled?: boolean
+}
+
+type SelectComboProps = {
+  value: string
+  placeholder: string
+  isOpen: boolean
+  options: ComboOption[]
+  activeValue?: string | number | null
+  emptyText?: string
+  disabled?: boolean
+  onToggle: () => void
+  onSelect: (option: ComboOption) => void
+}
+
+type PasswordInputProps = {
+  value: string
+  placeholder: string
+  autoComplete?: string
+  onChange: (value: string) => void
+}
+
 const monthOptions: ComboOption[] = [
   { value: '01', label: 'Январь' },
   { value: '02', label: 'Февраль' },
@@ -104,6 +133,20 @@ const emptyProfileFieldErrors = (): ProfileFieldErrors => ({
   birthDate: '',
 })
 
+const normalizeArrayResponse = <T,>(data: unknown): T[] => {
+  if (Array.isArray(data)) return data as T[]
+
+  if (data && typeof data === 'object') {
+    const payload = data as { items?: unknown[]; results?: unknown[]; data?: unknown[] }
+
+    if (Array.isArray(payload.items)) return payload.items as T[]
+    if (Array.isArray(payload.results)) return payload.results as T[]
+    if (Array.isArray(payload.data)) return payload.data as T[]
+  }
+
+  return []
+}
+
 const normalizePhoneForValidation = (value: string) => {
   return value.replace(/[()\-\s]/g, '').trim()
 }
@@ -134,29 +177,12 @@ const validatePasswordValue = (value: string) => {
     return errors
   }
 
-  if (/\s/.test(value)) {
-    errors.push('Пароль не должен содержать пробелы.')
-  }
-
-  if (value.length < 8) {
-    errors.push('Пароль должен содержать минимум 8 символов.')
-  }
-
-  if (!/[a-zа-я]/.test(value)) {
-    errors.push('Пароль должен содержать хотя бы одну строчную букву.')
-  }
-
-  if (!/[A-ZА-Я]/.test(value)) {
-    errors.push('Пароль должен содержать хотя бы одну заглавную букву.')
-  }
-
-  if (!/\d/.test(value)) {
-    errors.push('Пароль должен содержать хотя бы одну цифру.')
-  }
-
-  if (!specialRegex.test(value)) {
-    errors.push('Пароль должен содержать хотя бы один специальный символ.')
-  }
+  if (/\s/.test(value)) errors.push('Пароль не должен содержать пробелы.')
+  if (value.length < 8) errors.push('Пароль должен содержать минимум 8 символов.')
+  if (!/[a-zа-я]/.test(value)) errors.push('Пароль должен содержать хотя бы одну строчную букву.')
+  if (!/[A-ZА-Я]/.test(value)) errors.push('Пароль должен содержать хотя бы одну заглавную букву.')
+  if (!/\d/.test(value)) errors.push('Пароль должен содержать хотя бы одну цифру.')
+  if (!specialRegex.test(value)) errors.push('Пароль должен содержать хотя бы один специальный символ.')
 
   return errors
 }
@@ -209,16 +235,22 @@ const translateApiErrorMessage = (message: string, status?: number) => {
     return 'Введите корректный email.'
   }
 
-  if (
-    lower.includes('phone') &&
-    (lower.includes('invalid') || lower.includes('некоррект'))
-  ) {
+  if (lower.includes('phone') && (lower.includes('invalid') || lower.includes('некоррект'))) {
     return 'Введите телефон в формате +375291234567.'
   }
 
-  if (lower.includes('field required')) {
-    return 'Заполните обязательные поля.'
+  if (
+    lower.includes('file') ||
+    lower.includes('image') ||
+    lower.includes('photo') ||
+    lower.includes('файл') ||
+    lower.includes('изображ') ||
+    lower.includes('фото')
+  ) {
+    return message || 'Проверьте файл фото.'
   }
+
+  if (lower.includes('field required')) return 'Заполните обязательные поля.'
 
   if (lower.includes('string should have at least')) {
     const count = message.match(/(\d+)/)?.[1]
@@ -283,13 +315,8 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
     if (message) return translateApiErrorMessage(message, status)
   }
 
-  if (data?.message) {
-    return translateApiErrorMessage(data.message, status)
-  }
-
-  if (data?.error) {
-    return translateApiErrorMessage(data.error, status)
-  }
+  if (data?.message) return translateApiErrorMessage(data.message, status)
+  if (data?.error) return translateApiErrorMessage(data.error, status)
 
   switch (status) {
     case 400:
@@ -362,13 +389,8 @@ const validateBirthDateValue = (day: string, month: string, year: string) => {
 
   if (!hasAnyPart) return ''
 
-  if (!day || !month || !year) {
-    return 'Укажите дату рождения полностью.'
-  }
-
-  if (!isRealDate(day, month, year)) {
-    return 'Такой даты не существует.'
-  }
+  if (!day || !month || !year) return 'Укажите дату рождения полностью.'
+  if (!isRealDate(day, month, year)) return 'Такой даты не существует.'
 
   const today = getStartOfDay(new Date())
   const minDate = new Date(today)
@@ -376,27 +398,18 @@ const validateBirthDateValue = (day: string, month: string, year: string) => {
 
   const birthDate = new Date(Number(year), Number(month) - 1, Number(day))
 
-  if (birthDate > today) {
-    return 'Дата рождения не может быть в будущем.'
-  }
-
-  if (birthDate < minDate) {
-    return 'Дата рождения должна быть в пределах последних 80 лет.'
-  }
+  if (birthDate > today) return 'Дата рождения не может быть в будущем.'
+  if (birthDate < minDate) return 'Дата рождения должна быть в пределах последних 80 лет.'
 
   return ''
 }
 
 const formatBirthDateParts = (birthDate?: string | null) => {
-  if (!birthDate) {
-    return { day: '', month: '', year: '' }
-  }
+  if (!birthDate) return { day: '', month: '', year: '' }
 
   const match = birthDate.match(/^(\d{4})-(\d{2})-(\d{2})/)
 
-  if (!match) {
-    return { day: '', month: '', year: '' }
-  }
+  if (!match) return { day: '', month: '', year: '' }
 
   return {
     year: match[1],
@@ -419,9 +432,7 @@ const normalizeGender = (value?: string | null) => {
 const getCityDisplayName = (city?: CityItem | null) => {
   if (!city) return ''
 
-  if (city.full_name?.trim()) {
-    return city.full_name.trim()
-  }
+  if (city.full_name?.trim()) return city.full_name.trim()
 
   const title = [city.settlement_type_name, city.name].filter(Boolean).join(' ')
   const parts = [title, city.district_name, city.region_name].filter(Boolean)
@@ -451,7 +462,7 @@ const fetchCatalog = async <T,>(catalogName: string, limit = 100): Promise<T[]> 
     params: { skip: 0, limit },
   })
 
-  return Array.isArray(data) ? data : []
+  return normalizeArrayResponse<T>(data)
 }
 
 const fetchRegions = async (): Promise<RegionItem[]> => {
@@ -466,8 +477,26 @@ const fetchCities = async (): Promise<CityItem[]> => {
   return fetchCatalog<CityItem>('cities', 1000)
 }
 
-const updateApplicantProfile = async (payload: Record<string, unknown>) => {
+const updateApplicantProfile = async (payload: Record<string, unknown>): Promise<ApplicantProfile> => {
   const { data } = await http.put('/applicants/me', payload)
+  return data
+}
+
+const uploadApplicantPhoto = async (file: File): Promise<ApplicantProfile> => {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const { data } = await http.post('/applicants/me/photo', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+
+  return data
+}
+
+const deleteApplicantPhoto = async (): Promise<ApplicantProfile> => {
+  const { data } = await http.delete('/applicants/me/photo')
   return data
 }
 
@@ -498,7 +527,7 @@ const ChevronIcon = ({ open }: { open: boolean }) => (
       d="M6 9L12 15L18 9"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="2.4"
       strokeLinecap="round"
       strokeLinejoin="round"
     />
@@ -526,17 +555,61 @@ const EditIcon = () => (
   </svg>
 )
 
-type SelectComboProps = {
-  value: string
-  placeholder: string
-  isOpen: boolean
-  options: ComboOption[]
-  activeValue?: string | number | null
-  emptyText?: string
-  disabled?: boolean
-  onToggle: () => void
-  onSelect: (option: ComboOption) => void
-}
+const EyeIcon = ({ hidden }: { hidden: boolean }) => (
+  <svg className="profile-password-input__icon" viewBox="0 0 24 24" aria-hidden="true">
+    {hidden ? (
+      <>
+        <path
+          d="M3 3l18 18"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M10.58 10.58A2 2 0 0 0 13.42 13.42"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M9.88 5.08A10.57 10.57 0 0 1 12 4.86c5 0 8.33 4.29 9.33 6.14a7.62 7.62 0 0 1-2.02 2.56"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M6.61 6.63A13.07 13.07 0 0 0 2.67 11C3.67 12.86 7 17.14 12 17.14a9.7 9.7 0 0 0 4.04-.85"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>
+    ) : (
+      <>
+        <path
+          d="M2.67 12C3.67 10.14 7 5.86 12 5.86S20.33 10.14 21.33 12C20.33 13.86 17 18.14 12 18.14S3.67 13.86 2.67 12Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M12 14.5A2.5 2.5 0 1 0 12 9.5A2.5 2.5 0 0 0 12 14.5Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+      </>
+    )}
+  </svg>
+)
 
 const SelectCombo = ({
   value,
@@ -567,7 +640,7 @@ const SelectCombo = ({
         <ChevronIcon open={isOpen} />
       </button>
 
-      {isOpen && !disabled && (
+      {isOpen && !disabled ? (
         <div className="profile-combo__dropdown">
           {options.length > 0 ? (
             options.map((option) => {
@@ -592,29 +665,43 @@ const SelectCombo = ({
             <div className="profile-combo__empty">{emptyText}</div>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
 
-type ModalProps = {
-  title: string
-  subtitle?: string
-  onClose: () => void
-  children: ReactNode
-}
-
-const SecurityModal = ({ title, subtitle, onClose, children }: ModalProps) => (
-  <div className="profile-modal-overlay" onClick={onClose}>
-    <div className="profile-modal" onClick={(event) => event.stopPropagation()}>
+const ProfileModal = ({
+  title,
+  subtitle,
+  onClose,
+  children,
+  className = '',
+  closeDisabled = false,
+}: ModalProps) => (
+  <div
+    className="profile-modal-overlay"
+    onClick={() => {
+      if (!closeDisabled) onClose()
+    }}
+  >
+    <div
+      className={`profile-modal ${className}`.trim()}
+      onClick={(event) => event.stopPropagation()}
+    >
       <div className="profile-modal__header">
         <div>
           <h2>{title}</h2>
           {subtitle ? <p>{subtitle}</p> : null}
         </div>
 
-        <button type="button" className="profile-modal__close" onClick={onClose}>
-          ×
+        <button
+          type="button"
+          className="profile-modal__close"
+          onClick={onClose}
+          disabled={closeDisabled}
+          aria-label="Закрыть"
+        >
+          <span>×</span>
         </button>
       </div>
 
@@ -640,8 +727,35 @@ const PasswordErrors = ({ errors }: { errors: string[] }) => {
   )
 }
 
+const PasswordInput = ({ value, placeholder, autoComplete, onChange }: PasswordInputProps) => {
+  const [isVisible, setIsVisible] = useState(false)
+
+  return (
+    <div className="profile-password-input">
+      <input
+        type={isVisible ? 'text' : 'password'}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+      />
+
+      <button
+        type="button"
+        className="profile-password-input__toggle"
+        onClick={() => setIsVisible((prev) => !prev)}
+        aria-label={isVisible ? 'Скрыть пароль' : 'Показать пароль'}
+      >
+        <EyeIcon hidden={!isVisible} />
+      </button>
+    </div>
+  )
+}
+
 export const ApplicantProfilePage = () => {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
 
   const [openCombo, setOpenCombo] = useState<string | null>(null)
 
@@ -693,6 +807,11 @@ export const ApplicantProfilePage = () => {
   const [isPhoneModalOpen, setIsPhoneModalOpen] = useState(false)
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false)
 
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false)
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState('')
+  const [photoModalError, setPhotoModalError] = useState('')
+
   const profileQuery = useQuery({
     queryKey: ['applicant-profile-page'],
     queryFn: fetchApplicantProfile,
@@ -728,89 +847,83 @@ export const ApplicantProfilePage = () => {
     refetchOnWindowFocus: false,
   })
 
-  useEffect(() => {
-    const handleDocumentClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement
-
-      if (!target.closest('.profile-combo')) {
-        setOpenCombo(null)
-      }
-    }
-
-    document.addEventListener('click', handleDocumentClick)
-    return () => document.removeEventListener('click', handleDocumentClick)
-  }, [])
-
-  useEffect(() => {
-    const hasOpenedModal = isEmailModalOpen || isPhoneModalOpen || isPasswordModalOpen
-    document.body.style.overflow = hasOpenedModal ? 'hidden' : ''
-
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [isEmailModalOpen, isPhoneModalOpen, isPasswordModalOpen])
-
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-
-      setIsEmailModalOpen(false)
-      setIsPhoneModalOpen(false)
-      setIsPasswordModalOpen(false)
-    }
-
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [])
-
-  useEffect(() => {
-    const profile = profileQuery.data
-    if (!profile) return
-
-    const birth = formatBirthDateParts(profile.birth_date)
-
-    setFirstName(profile.first_name || '')
-    setLastName(profile.last_name || '')
-    setMiddleName(profile.middle_name || '')
-    setGender(normalizeGender(profile.gender))
-    setCityId(profile.city?.id ?? null)
-    setCityName(getCityDisplayName(profile.city))
-    setBirthDay(birth.day)
-    setBirthMonth(birth.month)
-    setBirthYear(birth.year)
-    setPhone(profile.phone || '')
-    setPhoneDraft(profile.phone || '')
-  }, [profileQuery.data])
-
-  useEffect(() => {
-    const me = authMeQuery.data
-    if (!me) return
-
-    setEmail(me.email || '')
-    setEmailDraft(me.email || '')
-  }, [authMeQuery.data])
-
-  useEffect(() => {
-    if (!birthDay) return
-
-    const maxDay = getDaysInMonth(birthYear, birthMonth)
-
-    if (Number(birthDay) > maxDay) {
-      setBirthDay('')
-    }
-  }, [birthDay, birthMonth, birthYear])
-
   const profileMutation = useMutation({
     mutationFn: updateApplicantProfile,
-    onSuccess: () => {
+    onSuccess: async (updatedProfile) => {
       setProfileSuccess('Профиль успешно сохранён.')
       setProfileError('')
       setProfileFieldErrors(emptyProfileFieldErrors())
-      void profileQuery.refetch()
+
+      queryClient.setQueryData(['applicant-profile-page'], updatedProfile)
+
+      await Promise.all([
+        profileQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ['applicant-profile-page'] }),
+      ])
     },
     onError: (error) => {
       setProfileSuccess('')
       setProfileError(getApiErrorMessage(error, 'Не удалось сохранить профиль.'))
+    },
+  })
+
+  const uploadPhotoMutation = useMutation({
+    mutationFn: uploadApplicantPhoto,
+    onSuccess: async (updatedProfile) => {
+      setProfileSuccess('Фото профиля успешно обновлено.')
+      setProfileError('')
+      setPhotoModalError('')
+      setIsPhotoModalOpen(false)
+      setPhotoFile(null)
+
+      if (photoPreviewUrl) {
+        URL.revokeObjectURL(photoPreviewUrl)
+        setPhotoPreviewUrl('')
+      }
+
+      if (photoInputRef.current) {
+        photoInputRef.current.value = ''
+      }
+
+      queryClient.setQueryData(['applicant-profile-page'], updatedProfile)
+
+      await Promise.all([
+        profileQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ['applicant-profile-page'] }),
+      ])
+    },
+    onError: (error) => {
+      setPhotoModalError(getApiErrorMessage(error, 'Не удалось загрузить фото профиля.'))
+    },
+  })
+
+  const deletePhotoMutation = useMutation({
+    mutationFn: deleteApplicantPhoto,
+    onSuccess: async (updatedProfile) => {
+      setProfileSuccess('Фото профиля удалено.')
+      setProfileError('')
+      setPhotoModalError('')
+      setIsPhotoModalOpen(false)
+      setPhotoFile(null)
+
+      if (photoPreviewUrl) {
+        URL.revokeObjectURL(photoPreviewUrl)
+        setPhotoPreviewUrl('')
+      }
+
+      if (photoInputRef.current) {
+        photoInputRef.current.value = ''
+      }
+
+      queryClient.setQueryData(['applicant-profile-page'], updatedProfile)
+
+      await Promise.all([
+        profileQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ['applicant-profile-page'] }),
+      ])
+    },
+    onError: (error) => {
+      setPhotoModalError(getApiErrorMessage(error, 'Не удалось удалить фото профиля.'))
     },
   })
 
@@ -821,7 +934,7 @@ export const ApplicantProfilePage = () => {
         phone: normalizePhoneForValidation(phone) || null,
         current_password: emailPassword,
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       const nextEmail = emailDraft.trim()
 
       setEmail(nextEmail)
@@ -831,13 +944,11 @@ export const ApplicantProfilePage = () => {
       setEmailWarning('')
       setIsEmailModalOpen(false)
 
-      void authMeQuery.refetch()
+      await authMeQuery.refetch()
     },
     onError: (error) => {
       setEmailSuccess('')
-      setEmailError(
-        getApiErrorMessage(error, 'Не удалось изменить email. Проверьте текущий пароль.'),
-      )
+      setEmailError(getApiErrorMessage(error, 'Не удалось изменить email. Проверьте текущий пароль.'))
     },
   })
 
@@ -848,7 +959,7 @@ export const ApplicantProfilePage = () => {
         phone: normalizePhoneForValidation(phoneDraft) || null,
         current_password: phonePassword,
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       const nextPhone = normalizePhoneForValidation(phoneDraft)
 
       setPhone(nextPhone)
@@ -858,13 +969,11 @@ export const ApplicantProfilePage = () => {
       setPhoneWarning('')
       setIsPhoneModalOpen(false)
 
-      void profileQuery.refetch()
+      await profileQuery.refetch()
     },
     onError: (error) => {
       setPhoneSuccess('')
-      setPhoneError(
-        getApiErrorMessage(error, 'Не удалось изменить телефон. Проверьте текущий пароль.'),
-      )
+      setPhoneError(getApiErrorMessage(error, 'Не удалось изменить телефон. Проверьте текущий пароль.'))
     },
   })
 
@@ -885,15 +994,119 @@ export const ApplicantProfilePage = () => {
     },
     onError: (error) => {
       setPasswordSuccess('')
-      setPasswordError(
-        getApiErrorMessage(error, 'Не удалось изменить пароль. Проверьте текущий пароль.'),
-      )
+      setPasswordError(getApiErrorMessage(error, 'Не удалось изменить пароль. Проверьте текущий пароль.'))
     },
   })
 
   const regions = regionsQuery.data || []
   const districts = districtsQuery.data || []
   const cities = citiesQuery.data || []
+
+  const profile = profileQuery.data
+  const currentPhoto = profile?.photo_url?.trim() || profile?.photo?.trim() || ''
+
+  const initials = getInitials(firstName, lastName)
+
+  const fullName =
+    [lastName, firstName, middleName].filter(Boolean).join(' ') || 'Профиль соискателя'
+
+  const isPageLoading = profileQuery.isLoading || authMeQuery.isLoading
+  const isPageError = profileQuery.isError || authMeQuery.isError
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+
+      if (!target.closest('.profile-combo')) {
+        setOpenCombo(null)
+      }
+    }
+
+    document.addEventListener('click', handleDocumentClick)
+    return () => document.removeEventListener('click', handleDocumentClick)
+  }, [])
+
+  useEffect(() => {
+    const hasOpenedModal =
+      isEmailModalOpen ||
+      isPhoneModalOpen ||
+      isPasswordModalOpen ||
+      isPhotoModalOpen
+
+    document.body.style.overflow = hasOpenedModal ? 'hidden' : ''
+
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isEmailModalOpen, isPhoneModalOpen, isPasswordModalOpen, isPhotoModalOpen])
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+
+      if (!emailMutation.isPending) setIsEmailModalOpen(false)
+      if (!phoneMutation.isPending) setIsPhoneModalOpen(false)
+      if (!passwordMutation.isPending) setIsPasswordModalOpen(false)
+
+      if (!uploadPhotoMutation.isPending && !deletePhotoMutation.isPending) {
+        handleClosePhotoModal()
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [
+    emailMutation.isPending,
+    phoneMutation.isPending,
+    passwordMutation.isPending,
+    uploadPhotoMutation.isPending,
+    deletePhotoMutation.isPending,
+    photoPreviewUrl,
+  ])
+
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) {
+        URL.revokeObjectURL(photoPreviewUrl)
+      }
+    }
+  }, [photoPreviewUrl])
+
+  useEffect(() => {
+    if (!profile) return
+
+    const birth = formatBirthDateParts(profile.birth_date)
+
+    setFirstName(profile.first_name || '')
+    setLastName(profile.last_name || '')
+    setMiddleName(profile.middle_name || '')
+    setGender(normalizeGender(profile.gender))
+    setCityId(profile.city?.id ?? null)
+    setCityName(getCityDisplayName(profile.city))
+    setBirthDay(birth.day)
+    setBirthMonth(birth.month)
+    setBirthYear(birth.year)
+    setPhone(profile.phone || '')
+    setPhoneDraft(profile.phone || '')
+  }, [profile])
+
+  useEffect(() => {
+    const me = authMeQuery.data
+    if (!me) return
+
+    setEmail(me.email || '')
+    setEmailDraft(me.email || '')
+  }, [authMeQuery.data])
+
+  useEffect(() => {
+    if (!birthDay) return
+
+    const maxDay = getDaysInMonth(birthYear, birthMonth)
+
+    if (Number(birthDay) > maxDay) {
+      setBirthDay('')
+    }
+  }, [birthDay, birthMonth, birthYear])
 
   useEffect(() => {
     if (!cityId) {
@@ -965,14 +1178,6 @@ export const ApplicantProfilePage = () => {
   }, [birthYear, birthMonth])
 
   const selectedMonthLabel = monthOptions.find((item) => item.value === birthMonth)?.label || ''
-
-  const initials = getInitials(firstName, lastName)
-
-  const fullName =
-    [lastName, firstName, middleName].filter(Boolean).join(' ') || 'Профиль соискателя'
-
-  const isPageLoading = profileQuery.isLoading || authMeQuery.isLoading
-  const isPageError = profileQuery.isError || authMeQuery.isError
 
   const handleSaveProfile = async () => {
     setProfileSuccess('')
@@ -1114,19 +1319,109 @@ export const ApplicantProfilePage = () => {
     }
   }
 
+  const handleOpenPhotoModal = () => {
+    setPhotoModalError('')
+    setPhotoFile(null)
+
+    if (photoPreviewUrl) {
+      URL.revokeObjectURL(photoPreviewUrl)
+      setPhotoPreviewUrl('')
+    }
+
+    if (photoInputRef.current) {
+      photoInputRef.current.value = ''
+    }
+
+    setIsPhotoModalOpen(true)
+  }
+
+  const handleClosePhotoModal = () => {
+    if (uploadPhotoMutation.isPending || deletePhotoMutation.isPending) return
+
+    setIsPhotoModalOpen(false)
+    setPhotoModalError('')
+    setPhotoFile(null)
+
+    if (photoPreviewUrl) {
+      URL.revokeObjectURL(photoPreviewUrl)
+      setPhotoPreviewUrl('')
+    }
+
+    if (photoInputRef.current) {
+      photoInputRef.current.value = ''
+    }
+  }
+
+  const handleSelectPhotoFile = (file?: File | null) => {
+    setPhotoModalError('')
+
+    if (!file) return
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
+
+    if (!allowedTypes.includes(file.type)) {
+      setPhotoModalError('Выберите изображение в формате JPG, PNG или WEBP.')
+      return
+    }
+
+    const maxSize = 8 * 1024 * 1024
+
+    if (file.size > maxSize) {
+      setPhotoModalError('Фото должно быть не больше 8 МБ.')
+      return
+    }
+
+    if (photoPreviewUrl) {
+      URL.revokeObjectURL(photoPreviewUrl)
+    }
+
+    setPhotoFile(file)
+    setPhotoPreviewUrl(URL.createObjectURL(file))
+  }
+
+  const handleSavePhoto = async () => {
+    setPhotoModalError('')
+
+    if (!photoFile) {
+      setPhotoModalError('Сначала выберите фото.')
+      return
+    }
+
+    try {
+      await uploadPhotoMutation.mutateAsync(photoFile)
+    } catch {
+      // Ошибка уже обработана в onError.
+    }
+  }
+
+  const handleDeletePhoto = async () => {
+    setPhotoModalError('')
+
+    if (!currentPhoto) {
+      setPhotoModalError('У профиля пока нет фото.')
+      return
+    }
+
+    try {
+      await deletePhotoMutation.mutateAsync()
+    } catch {
+      // Ошибка уже обработана в onError.
+    }
+  }
+
   return (
     <div className="applicant-profile-page">
       <Header />
 
       <main className="applicant-profile-page__main">
-        <div className="container">
+        <div className="applicant-profile-container">
           <section className="applicant-profile-shell">
             <aside className="applicant-profile-sidebar">
               <div className="profile-summary-card">
                 <div className="profile-summary-card__avatar-wrap">
-                  {profileQuery.data?.photo_url ? (
+                  {currentPhoto ? (
                     <img
-                      src={profileQuery.data.photo_url}
+                      src={currentPhoto}
                       alt="Фото профиля"
                       className="profile-summary-card__avatar-image"
                     />
@@ -1145,13 +1440,26 @@ export const ApplicantProfilePage = () => {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  className="btn btn--outline profile-summary-card__photo-btn"
-                  disabled
-                >
-                  Фото скоро появится
-                </button>
+                <div className="profile-summary-card__photo-actions">
+                  <button
+                    type="button"
+                    className="applicant-profile-btn applicant-profile-btn--outline profile-summary-card__photo-btn"
+                    onClick={handleOpenPhotoModal}
+                  >
+                    {currentPhoto ? 'Изменить фото' : 'Загрузить фото'}
+                  </button>
+
+                  {currentPhoto ? (
+                    <button
+                      type="button"
+                      className="applicant-profile-btn applicant-profile-btn--danger profile-summary-card__photo-btn"
+                      onClick={handleDeletePhoto}
+                      disabled={deletePhotoMutation.isPending}
+                    >
+                      {deletePhotoMutation.isPending ? 'Удаляем...' : 'Удалить фото'}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </aside>
 
@@ -1261,9 +1569,7 @@ export const ApplicantProfilePage = () => {
                         options={regionOptions}
                         activeValue={regionId ?? ''}
                         emptyText={regionsQuery.isLoading ? 'Загружаем области...' : 'Области не найдены'}
-                        onToggle={() =>
-                          setOpenCombo((prev) => (prev === 'region' ? null : 'region'))
-                        }
+                        onToggle={() => setOpenCombo((prev) => (prev === 'region' ? null : 'region'))}
                         onSelect={(option) => {
                           if (option.value === '') {
                             setRegionId(null)
@@ -1296,9 +1602,7 @@ export const ApplicantProfilePage = () => {
                               ? 'Загружаем районы...'
                               : 'Районы не найдены'
                         }
-                        onToggle={() =>
-                          setOpenCombo((prev) => (prev === 'district' ? null : 'district'))
-                        }
+                        onToggle={() => setOpenCombo((prev) => (prev === 'district' ? null : 'district'))}
                         onSelect={(option) => {
                           if (option.value === '') {
                             setDistrictId(null)
@@ -1366,9 +1670,7 @@ export const ApplicantProfilePage = () => {
                       isOpen={openCombo === 'birthDay'}
                       options={dayOptions}
                       activeValue={birthDay}
-                      onToggle={() =>
-                        setOpenCombo((prev) => (prev === 'birthDay' ? null : 'birthDay'))
-                      }
+                      onToggle={() => setOpenCombo((prev) => (prev === 'birthDay' ? null : 'birthDay'))}
                       onSelect={(option) => {
                         setBirthDay(String(option.value))
                         setProfileFieldErrors((prev) => ({ ...prev, birthDate: '' }))
@@ -1382,9 +1684,7 @@ export const ApplicantProfilePage = () => {
                       isOpen={openCombo === 'birthMonth'}
                       options={monthOptions}
                       activeValue={birthMonth}
-                      onToggle={() =>
-                        setOpenCombo((prev) => (prev === 'birthMonth' ? null : 'birthMonth'))
-                      }
+                      onToggle={() => setOpenCombo((prev) => (prev === 'birthMonth' ? null : 'birthMonth'))}
                       onSelect={(option) => {
                         setBirthMonth(String(option.value))
                         setProfileFieldErrors((prev) => ({ ...prev, birthDate: '' }))
@@ -1398,9 +1698,7 @@ export const ApplicantProfilePage = () => {
                       isOpen={openCombo === 'birthYear'}
                       options={yearOptions}
                       activeValue={birthYear}
-                      onToggle={() =>
-                        setOpenCombo((prev) => (prev === 'birthYear' ? null : 'birthYear'))
-                      }
+                      onToggle={() => setOpenCombo((prev) => (prev === 'birthYear' ? null : 'birthYear'))}
                       onSelect={(option) => {
                         setBirthYear(String(option.value))
                         setProfileFieldErrors((prev) => ({ ...prev, birthDate: '' }))
@@ -1487,7 +1785,7 @@ export const ApplicantProfilePage = () => {
                 <div className="profile-main-card__footer">
                   <button
                     type="button"
-                    className="btn btn--primary profile-save-btn"
+                    className="applicant-profile-btn applicant-profile-btn--primary profile-save-btn"
                     onClick={handleSaveProfile}
                     disabled={profileMutation.isPending}
                   >
@@ -1499,8 +1797,89 @@ export const ApplicantProfilePage = () => {
           </section>
         </div>
 
-        {isEmailModalOpen && (
-          <SecurityModal title="Изменение email" onClose={() => setIsEmailModalOpen(false)}>
+        {isPhotoModalOpen ? (
+          <ProfileModal
+            title="Выберите фото"
+            subtitle="Загрузите фото профиля. Оно будет показано в резюме и личном кабинете."
+            onClose={handleClosePhotoModal}
+            className="profile-photo-modal"
+            closeDisabled={uploadPhotoMutation.isPending || deletePhotoMutation.isPending}
+          >
+            <div className="profile-photo-modal__body">
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="profile-photo-modal__file-input"
+                onChange={(event) => handleSelectPhotoFile(event.target.files?.[0])}
+              />
+
+              <button
+                type="button"
+                className="profile-photo-modal__choose"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={uploadPhotoMutation.isPending || deletePhotoMutation.isPending}
+              >
+                Выбрать файл
+              </button>
+
+              <div className="profile-photo-preview-card">
+                <div className="profile-photo-preview-card__avatar">
+                  {photoPreviewUrl || currentPhoto ? (
+                    <img src={photoPreviewUrl || currentPhoto} alt="Предпросмотр фото" />
+                  ) : (
+                    <span>{initials}</span>
+                  )}
+                </div>
+
+                <div className="profile-photo-preview-card__content">
+                  <strong>{fullName}</strong>
+                  <span>Так фото будет выглядеть в профиле и резюме</span>
+                </div>
+              </div>
+
+              {photoFile ? (
+                <div className="profile-photo-modal__file-info">
+                  <span>{photoFile.name}</span>
+                  <strong>{(photoFile.size / 1024 / 1024).toFixed(2)} МБ</strong>
+                </div>
+              ) : null}
+
+              {photoModalError ? (
+                <div className="profile-message profile-message--error">{photoModalError}</div>
+              ) : null}
+            </div>
+
+            <div className="profile-modal__footer profile-photo-modal__footer">
+
+              <button
+                type="button"
+                className="applicant-profile-btn applicant-profile-btn--outline"
+                onClick={handleClosePhotoModal}
+                disabled={uploadPhotoMutation.isPending || deletePhotoMutation.isPending}
+              >
+                Отмена
+              </button>
+
+              <button
+                type="button"
+                className="applicant-profile-btn applicant-profile-btn--primary"
+                onClick={handleSavePhoto}
+                disabled={!photoFile || uploadPhotoMutation.isPending || deletePhotoMutation.isPending}
+              >
+                {uploadPhotoMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
+              </button>
+            </div>
+          </ProfileModal>
+        ) : null}
+
+        {isEmailModalOpen ? (
+          <ProfileModal
+            title="Изменение email"
+            onClose={() => setIsEmailModalOpen(false)}
+            className="profile-modal--compact"
+            closeDisabled={emailMutation.isPending}
+          >
             {emailSuccess ? (
               <div className="profile-message profile-message--success">{emailSuccess}</div>
             ) : null}
@@ -1509,62 +1888,71 @@ export const ApplicantProfilePage = () => {
               <div className="profile-message profile-message--error">{emailError}</div>
             ) : null}
 
-            <label className="profile-field">
-              <span className="profile-field__label">Новый email</span>
+            <div className="profile-form-grid profile-form-grid--modal">
+              <label className="profile-field profile-field--full">
+                <span className="profile-field__label">Новый email</span>
 
-              <input
-                type="email"
-                value={emailDraft}
-                onChange={(event) => {
-                  const value = event.target.value
+                <input
+                  type="email"
+                  value={emailDraft}
+                  onChange={(event) => {
+                    const value = event.target.value
 
-                  setEmailDraft(value)
-                  setEmailWarning(value ? validateEmailValue(value) : '')
-                  setEmailError('')
-                }}
-                placeholder="name@example.com"
-              />
+                    setEmailDraft(value)
+                    setEmailWarning(value ? validateEmailValue(value) : '')
+                    setEmailError('')
+                  }}
+                  placeholder="name@example.com"
+                  autoComplete="email"
+                />
 
-              <FieldError message={emailWarning} />
-            </label>
+                <FieldError message={emailWarning} />
+              </label>
 
-            <label className="profile-field">
-              <span className="profile-field__label">Текущий пароль</span>
+              <label className="profile-field profile-field--full">
+                <span className="profile-field__label">Текущий пароль</span>
 
-              <input
-                type="password"
-                value={emailPassword}
-                onChange={(event) => {
-                  setEmailPassword(event.target.value)
-                  setEmailError('')
-                }}
-                placeholder="Введите текущий пароль"
-              />
-            </label>
+                <PasswordInput
+                  value={emailPassword}
+                  placeholder="Введите текущий пароль"
+                  autoComplete="current-password"
+                  onChange={(value) => {
+                    setEmailPassword(value)
+                    setEmailError('')
+                  }}
+                />
+              </label>
+            </div>
 
             <div className="profile-modal__footer">
               <button
                 type="button"
-                className="btn btn--outline"
+                className="applicant-profile-btn applicant-profile-btn--outline"
                 onClick={() => setIsEmailModalOpen(false)}
+                disabled={emailMutation.isPending}
               >
                 Отмена
               </button>
 
               <button
                 type="button"
-                className="btn btn--primary"
+                className="applicant-profile-btn applicant-profile-btn--primary"
                 onClick={handleSaveEmail}
                 disabled={emailMutation.isPending}
               >
-                {emailMutation.isPending ? 'Сохраняем...' : 'Сохранить email'}
+                {emailMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
               </button>
             </div>
-          </SecurityModal>
-        )}
+          </ProfileModal>
+        ) : null}
 
-        {isPhoneModalOpen && (
-          <SecurityModal title="Изменение телефона" onClose={() => setIsPhoneModalOpen(false)}>
+        {isPhoneModalOpen ? (
+          <ProfileModal
+            title="Изменение телефона"
+            onClose={() => setIsPhoneModalOpen(false)}
+            className="profile-modal--compact"
+            closeDisabled={phoneMutation.isPending}
+          >
             {phoneSuccess ? (
               <div className="profile-message profile-message--success">{phoneSuccess}</div>
             ) : null}
@@ -1573,64 +1961,70 @@ export const ApplicantProfilePage = () => {
               <div className="profile-message profile-message--error">{phoneError}</div>
             ) : null}
 
-            <label className="profile-field">
-              <span className="profile-field__label">Новый телефон</span>
+            <div className="profile-form-grid profile-form-grid--modal">
+              <label className="profile-field profile-field--full">
+                <span className="profile-field__label">Новый телефон</span>
 
-              <input
-                value={phoneDraft}
-                onChange={(event) => {
-                  const value = event.target.value
+                <input
+                  value={phoneDraft}
+                  onChange={(event) => {
+                    const value = event.target.value
 
-                  setPhoneDraft(value)
-                  setPhoneWarning(value ? validatePhoneValue(value) : '')
-                  setPhoneError('')
-                }}
-                placeholder="+375 (29) 123-45-67"
-              />
+                    setPhoneDraft(value)
+                    setPhoneWarning(value ? validatePhoneValue(value) : '')
+                    setPhoneError('')
+                  }}
+                  placeholder="+375 (29) 123-45-67"
+                  autoComplete="tel"
+                />
 
-              <FieldError message={phoneWarning} />
-            </label>
+                <FieldError message={phoneWarning} />
+              </label>
 
-            <label className="profile-field">
-              <span className="profile-field__label">Текущий пароль</span>
+              <label className="profile-field profile-field--full">
+                <span className="profile-field__label">Текущий пароль</span>
 
-              <input
-                type="password"
-                value={phonePassword}
-                onChange={(event) => {
-                  setPhonePassword(event.target.value)
-                  setPhoneError('')
-                }}
-                placeholder="Введите текущий пароль"
-              />
-            </label>
+                <PasswordInput
+                  value={phonePassword}
+                  placeholder="Введите текущий пароль"
+                  autoComplete="current-password"
+                  onChange={(value) => {
+                    setPhonePassword(value)
+                    setPhoneError('')
+                  }}
+                />
+              </label>
+            </div>
 
             <div className="profile-modal__footer">
               <button
                 type="button"
-                className="btn btn--outline"
+                className="applicant-profile-btn applicant-profile-btn--outline"
                 onClick={() => setIsPhoneModalOpen(false)}
+                disabled={phoneMutation.isPending}
               >
                 Отмена
               </button>
 
               <button
                 type="button"
-                className="btn btn--primary"
+                className="applicant-profile-btn applicant-profile-btn--primary"
                 onClick={handleSavePhone}
                 disabled={phoneMutation.isPending}
               >
-                {phoneMutation.isPending ? 'Сохраняем...' : 'Сохранить телефон'}
+                {phoneMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
               </button>
             </div>
-          </SecurityModal>
-        )}
+          </ProfileModal>
+        ) : null}
 
-        {isPasswordModalOpen && (
-          <SecurityModal
+        {isPasswordModalOpen ? (
+          <ProfileModal
             title="Смена пароля"
             subtitle="После успешной смены пароля потребуется заново войти в аккаунт."
             onClose={() => setIsPasswordModalOpen(false)}
+            className="profile-modal--compact"
+            closeDisabled={passwordMutation.isPending}
           >
             {passwordSuccess ? (
               <div className="profile-message profile-message--success">{passwordSuccess}</div>
@@ -1641,34 +2035,32 @@ export const ApplicantProfilePage = () => {
             ) : null}
 
             <div className="profile-form-grid profile-form-grid--password">
-              <label className="profile-field">
+              <label className="profile-field profile-field--full">
                 <span className="profile-field__label">Текущий пароль</span>
 
-                <input
-                  type="password"
+                <PasswordInput
                   value={currentPassword}
-                  onChange={(event) => {
-                    setCurrentPassword(event.target.value)
+                  placeholder="Введите текущий пароль"
+                  autoComplete="current-password"
+                  onChange={(value) => {
+                    setCurrentPassword(value)
                     setPasswordError('')
                   }}
-                  placeholder="Введите текущий пароль"
                 />
               </label>
 
-              <label className="profile-field">
+              <label className="profile-field profile-field--full">
                 <span className="profile-field__label">Новый пароль</span>
 
-                <input
-                  type="password"
+                <PasswordInput
                   value={newPassword}
-                  onChange={(event) => {
-                    const value = event.target.value
-
+                  placeholder="Aa123456!"
+                  autoComplete="new-password"
+                  onChange={(value) => {
                     setNewPassword(value)
                     setPasswordWarnings(value ? validatePasswordValue(value) : [])
                     setPasswordError('')
                   }}
-                  placeholder="Aa123456!"
                 />
 
                 <PasswordErrors errors={passwordWarnings} />
@@ -1677,14 +2069,14 @@ export const ApplicantProfilePage = () => {
               <label className="profile-field profile-field--full">
                 <span className="profile-field__label">Подтверждение нового пароля</span>
 
-                <input
-                  type="password"
+                <PasswordInput
                   value={confirmNewPassword}
-                  onChange={(event) => {
-                    setConfirmNewPassword(event.target.value)
+                  placeholder="Повторите новый пароль"
+                  autoComplete="new-password"
+                  onChange={(value) => {
+                    setConfirmNewPassword(value)
                     setPasswordError('')
                   }}
-                  placeholder="Повторите новый пароль"
                 />
               </label>
             </div>
@@ -1692,23 +2084,24 @@ export const ApplicantProfilePage = () => {
             <div className="profile-modal__footer">
               <button
                 type="button"
-                className="btn btn--outline"
+                className="applicant-profile-btn applicant-profile-btn--outline"
                 onClick={() => setIsPasswordModalOpen(false)}
+                disabled={passwordMutation.isPending}
               >
                 Отмена
               </button>
 
               <button
                 type="button"
-                className="btn btn--primary"
+                className="applicant-profile-btn applicant-profile-btn--primary"
                 onClick={handleChangePassword}
                 disabled={passwordMutation.isPending}
               >
-                {passwordMutation.isPending ? 'Меняем пароль...' : 'Изменить пароль'}
+                {passwordMutation.isPending ? 'Меняем...' : 'Сохранить'}
               </button>
             </div>
-          </SecurityModal>
-        )}
+          </ProfileModal>
+        ) : null}
       </main>
 
       <Footer />

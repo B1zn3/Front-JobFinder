@@ -1003,7 +1003,7 @@ export const VacancyDetailPage = () => {
     if (!isAuthenticated) {
       const redirectPath = `/vacancies/${vacancyId}`
 
-      navigate(`/login?redirect=${encodeURIComponent(redirectPath)}`, {
+            navigate(`/register?redirect=${encodeURIComponent(redirectPath)}`, {
         state: { from: redirectPath },
       })
 
@@ -1386,12 +1386,6 @@ export const VacancyDetailPage = () => {
         </div>
       </div>
     )}
-
-    {companyInfo.description ? (
-      <p className="vacancy-company-card__description">
-        {companyInfo.description}
-      </p>
-    ) : null}
 
     <div className="vacancy-company-card__offices-block">
       <div className="vacancy-company-card__offices-title">

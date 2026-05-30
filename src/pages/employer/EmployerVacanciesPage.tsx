@@ -128,7 +128,7 @@ const fetchCatalog = async (name: string): Promise<CatalogItem[]> => {
 
 const fetchProfessions = async (): Promise<CatalogItem[]> => {
   const { data } = await http.get('/public/professions', {
-    params: { skip: 0, limit: 500 },
+    params: { skip: 0, limit: 100 },
   })
 
   return toArray<CatalogItem>(data)
@@ -845,9 +845,6 @@ export const EmployerVacanciesPage = () => {
                     <div>
                       <h1 className="employer-card__title">Мои вакансии</h1>
 
-                      <p className="employer-card__subtitle">
-                        Управляйте вакансиями, фильтруйте список и переходите к редактированию.
-                      </p>
                     </div>
 
                     <button
@@ -882,9 +879,6 @@ export const EmployerVacanciesPage = () => {
                     <div className="employer-toolbar__header">
                       <div>
                         <h3 className="employer-toolbar__title">Поиск и фильтры</h3>
-                        <p className="employer-toolbar__subtitle">
-                          Быстро найдите нужную вакансию по названию, области, району, городу, статусу или зарплате.
-                        </p>
                       </div>
                     </div>
 

@@ -910,11 +910,14 @@
 }
 
 .salary-filter__currency .custom-select__trigger {
-  min-height: 52px;
-  padding: 0 14px;
-  border-radius: 15px;
-  background: var(--bg-card);
-  font-weight: 900;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: var(--transition);
+    text-align: left;
+    position: relative;
+    z-index: 2;
 }
 
 .salary-filter__currency .custom-select__trigger span:first-child {
@@ -928,7 +931,10 @@
 }
 
 .salary-filter__currency .custom-select__option {
-  font-weight: 800;
+  min-height: 44px;     
+  line-height: 1.35;    
+   white-space: normal;     
+   overflow-wrap: anywhere;
 }
 
 @media (max-width: 768px) {

@@ -625,14 +625,8 @@ export const VacanciesPage = () => {
           <div className="container">
             <div className="vacancies-hero__content">
               <h1 className="vacancies-hero__title">
-                Вакансии, оформленные в стиле главной страницы
+                Вакансии
               </h1>
-
-              <p className="vacancies-hero__text">
-                Удобный каталог вакансий с фильтрами по области, району, городу, профессии,
-                типу занятости, графику работы, опыту, зарплате и валюте.
-              </p>
-
               <form className="vacancies-hero__search" onSubmit={handleSearchSubmit}>
                 <input
                   className="vacancies-hero__input"
@@ -810,7 +804,7 @@ export const VacanciesPage = () => {
 
                   <CustomSelect
                     selectKey="city"
-                    label="Город / населённый пункт"
+                    label="Населённый пункт"
                     placeholder="Все города"
                     value={cityId}
                     options={cityOptions}
